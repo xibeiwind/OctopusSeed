@@ -1,0 +1,38 @@
+# ---- 构建产物（.NET） ----
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+TestResults/
+*.user
+*.suo
+*.userprefs
+.vs/
+*.nupkg
+
+# ---- 构建产物（Node / 前端） ----
+node_modules/
+dist/
+build/
+out/
+.vite/
+*.tsbuildinfo
+
+# ---- 构建产物（Go / 其它） ----
+*.exe
+*.test
+*.out
+vendor/
+
+# ---- IDE ----
+.idea/
+.vscode/settings.json
+
+# ---- 本地 / 临时 ----
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# ---- 生成的开发看板（源见 tools/build-kanban.ps1 / tools/serve-kanban.ps1）----
+tools/kanban.html

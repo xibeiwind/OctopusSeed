@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    硬性保证：所有项目必须采用 <Nullable>disable</Nullable>。
+    默认值由 Directory.Build.props 统一继承；此处通过构建期断言防止
+    任何 csproj 私自覆盖为 enable，否则构建直接失败，迫使团队走显式评审。
+    如需启用可空引用，应在团队评审后修改 Directory.Build.props，而非在子项目里覆盖。
+  -->
+  <Target Name="EnforceNullableDisabled" BeforeTargets="CoreCompile">
+    <Error
+      Condition="'$(Nullable)' != 'disable'"
+      Text="项目 '$(MSBuildProjectName)' 的 Nullable 必须为 'disable'（已由 Directory.Build.props 统一设置）。若确需启用可空引用，请通过团队评审修改 Directory.Build.props，不要在 csproj 中私自设置 &lt;Nullable&gt;。" />
+  </Target>
+</Project>

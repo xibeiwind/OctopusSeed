@@ -1,0 +1,15 @@
+<Project>
+  <!-- 统一项目设置：本目录及所有子项目自动继承，避免在各 csproj 中重复声明。 -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <!-- 质量门禁（CONTRIBUTING.md §6）：把 CS8632 当错误，违反即编译失败，
+         使"禁止引用类型可空注解 T?"成为无法绕过的红线。 -->
+    <WarningsAsErrors>CS8632</WarningsAsErrors>
+    <LangVersion>latest</LangVersion>
+    <Authors>{{PROJECT_NAME}}</Authors>
+    <Company>{{PROJECT_NAME}}</Company>
+    <Product>{{PROJECT_NAME}}</Product>
+  </PropertyGroup>
+</Project>

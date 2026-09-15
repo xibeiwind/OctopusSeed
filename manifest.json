@@ -1,0 +1,80 @@
+{
+  "name": "OctopusSeed",
+  "version": "1.0.0",
+  "description": "Human-AI collaborative software engineering process template: numbered traceability (requirement <-> work package <-> code), stage-plan-driven delivery, and hard gates enforced at build/hook/CI.",
+  "provenance": {
+    "extractedFrom": "OctopusCtrlBridge",
+    "originOfOrigin": "OctopusSynapse",
+    "extractedAt": "2026-09-15"
+  },
+  "placeholderSyntax": "{{UPPER_SNAKE}} - deliberately contains no '$' so it never collides with GitHub Actions '${{ ... }}' expressions. Replace with regex: \\{\\{[A-Z][A-Z0-9_]*\\}\\}",
+  "placeholders": {
+    "PROJECT_NAME": { "example": "OctopusCtrlBridge", "required": true, "note": "project / product name" },
+    "APP_KEY": { "example": "ocb", "required": true, "note": "lowercase short key for localStorage and temp file prefixes; derived from PROJECT_NAME when omitted" },
+    "STACK_NAME": { "example": ".NET", "required": true, "note": "from -Stack" },
+    "BUILD_CMD": { "example": "dotnet build", "required": true, "note": "must be green with zero new warnings" },
+    "TEST_CMD": { "example": "dotnet test", "required": true, "note": "" },
+    "INTEGRATION_BRANCH": { "example": "develop", "required": true, "note": "feature branches are cut from it; CI trigger branches use it too" },
+    "RELEASE_BRANCH": { "example": "main", "required": true, "note": "" },
+    "CI_RUNNER": { "example": "[\"windows-latest\"]", "required": true, "note": "JSON array string used by fromJSON(vars.CI_RUNNER_LABELS || ...)" },
+    "STACK_JOB": { "example": "", "required": false, "note": "CI injection anchor: replaced by variants/<stack>/jobs/*.yml, removed for -Stack generic" }
+  },
+  "stacks": {
+    "generic": { "display": "generic", "buildCmd": "<your build command>", "testCmd": "<your test command>", "job": "" },
+    "dotnet": { "display": ".NET", "buildCmd": "dotnet build", "testCmd": "dotnet test", "job": "jobs/dotnet.yml" },
+    "typescript": { "display": "TypeScript", "buildCmd": "npm run build", "testCmd": "npm test", "job": "jobs/frontend.yml" },
+    "go": { "display": "Go", "buildCmd": "go build ./...", "testCmd": "go test ./...", "job": "jobs/go.yml" }
+  },
+  "roots": {
+    "core": "template",
+    "variants": "variants"
+  },
+  "variantOnlyFiles": ["README.md"],
+  "variantOnlyDirs": ["jobs"],
+  "required": [
+    "template/README.md",
+    "template/CONTRIBUTING.md",
+    "template/.gitignore",
+    "template/.githooks/commit-msg",
+    "template/.github/workflows/verify-clean-build.yml",
+    "template/.codebuddy/rules/stage-plan-driven/RULE.mdc",
+    "template/.codebuddy/rules/coding-conventions/RULE.mdc",
+    "template/.codebuddy/rules/rtm-traceability/RULE.mdc",
+    "template/.codebuddy/rules/quality-gate/RULE.mdc",
+    "template/docs/README.md",
+    "template/docs/需求跟踪矩阵.md",
+    "template/docs/范围边界清单.md",
+    "template/docs/项目时间线.md",
+    "template/docs/模板/阶段执行计划模板.md",
+    "template/docs/模板/能力专题设计模板.md",
+    "template/docs/模板/阶段收口评审模板.md",
+    "template/tools/governance-check.ps1",
+    "template/tools/kanban-data.ps1",
+    "template/tools/kanban.template.html",
+    "template/tools/build-kanban.ps1",
+    "template/tools/serve-kanban.ps1",
+    "template/tools/kanban-check.ps1",
+    "variants/dotnet/Directory.Build.props",
+    "variants/dotnet/Directory.Build.targets",
+    "variants/dotnet/global.json",
+    "variants/dotnet/jobs/dotnet.yml",
+    "variants/dotnet/.codebuddy/rules/nullable-gate/RULE.mdc",
+    "variants/dotnet/README.md",
+    "variants/typescript/README.md",
+    "variants/typescript/jobs/frontend.yml",
+    "variants/go/README.md",
+    "variants/go/jobs/go.yml"
+  ],
+  "forbiddenInTemplate": [
+    "OctopusCtrlBridge",
+    "OctopusSynapse",
+    "过程规范迁移说明",
+    "probe-summary",
+    "kanban.html 不入库"
+  ],
+  "generatedLaterDocPrefixes": ["docs/01-", "docs/02-", "docs/03-", "docs/04-", "docs/05-", "docs/NN-", "docs/模"],
+  "repoLevelRefs": ["MANIFEST.md", "README.md", "init.ps1", "template-check.ps1", "variants/"],
+  "generatedArtifacts": ["tools/kanban.html"],
+  "textExtensions": [".md", ".mdc", ".ps1", ".html", ".yml", ".yaml", ".json", ".props", ".targets", ".txt", ".gitignore", ".editorconfig"],
+  "noBomExtensions": [".md", ".mdc", ".html", ".yml", ".yaml", ".json", ".props", ".targets", ".txt", ".gitignore", ".editorconfig"]
+}

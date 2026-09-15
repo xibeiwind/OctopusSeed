@@ -1,0 +1,19 @@
+---
+description: 全局 Nullable=disable，禁止引用类型可空注解 T?（CS8632 为编译错误）；代码改动须保持构建零警告。
+alwaysApply: true
+enabled: true
+updatedAt: 2026-09-12T00:00:00.000Z
+provider:
+---
+
+# 可空与质量门禁（L0 预防层）
+
+- 全局 `<Nullable>disable</Nullable>`（由 `Directory.Build.props` 统一继承），**不要**在 csproj 中覆盖为 enable；`Directory.Build.targets` 有构建期断言，私自覆盖会直接构建失败。
+- **禁止**在代码中使用引用类型可空注解 `T?`（如 `string?`、`RetryPolicy?`、`JToken?`）；这会触发 `CS8632`，且已被设为**编译错误**（`Directory.Build.props` 的 `WarningsAsErrors=CS8632`），会导致构建失败。
+  - 若确需对单个文件启用可空分析，使用 `#nullable enable` **局部**开启，并在该文件内自洽，而非修改全局设置。
+  - **值类型可空**（`int?`、`enum?`，即 `Nullable<T>`）始终合法，可保留。
+- 代码改动须保持 `dotnet build` 全绿、零新增编译器警告。
+- 每个工作包至少配一个单测于 `tests/<Project>.Tests`。
+
+> 质量门禁完整说明见 `CONTRIBUTING.md` §6；该红线由构建期 `WarningsAsErrors` 与 CI 强制保证。
+> **本规则随 `variants/dotnet` 叠加**：换成其它技术栈时**整体移除**本规则，改用该栈的等价门禁（见 `CONTRIBUTING.md` §11）。

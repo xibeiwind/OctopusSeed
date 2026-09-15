@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<title>{{PROJECT_NAME}} 看板</title>
+<style>
+/* Light is the default palette; html[data-theme="dark"] overrides the same variables, so every rule
+   below stays theme-agnostic (no hard-coded colour outside this block) - and tools/kanban-check.ps1
+   asserts that literally: a colour literal anywhere else in <style> fails the gate.
+   Three of these variables exist for reasons that are easy to undo by accident:
+   - --on-blue: the ink ON a --blue fill. White on the dark theme's #4493f8 is 2.85:1, which would make
+     the LIVE badge and the active button the least readable text on the page; dark uses near-black.
+   - --done / --progress / --idle: the light theme uses darker values than the familiar web green /
+     amber / grey, because those sit at 1.9~2.7:1 on white (the dots are shape-coded, so hue is
+     decoration; being able to SEE them is not).
+   - both themes must define the same key set: a missing key does not error, it silently falls back to
+     the light value (which is how a "converted to dark" surface ends up with one light patch). */
+:root{--bg:#f4f5f7;--col:#ebecf0;--card:#fff;--ink:#172b4d;--muted:#5e6c84;--blue:#0065ff;--line:#eee;--rid:#42526e;--field-bg:#fff;--field-border:#ccc;--btn-bg:#fff;--btn-border:#ccc;--count-bg:#fff;--count-ink:#5e6c84;--bcard-bg:#fafbfc;--card-shadow:0 1px 2px rgba(9,30,66,.25);--panel-shadow:0 1px 2px rgba(9,30,66,.15);--header-shadow:0 1px 2px rgba(9,30,66,.12);--done:#1f8f5f;--progress:#b26a00;--blocked:#de350b;--idle:#5e6c84;--on-blue:#fff;--header-bg:var(--card);--header-line:var(--line);--col-border:transparent;--scrim:rgba(9,30,66,.42);--drawer-shadow:-10px 0 30px rgba(9,30,66,.28);--flash:rgba(0,101,255,.18);color-scheme:light;}
+html[data-theme="dark"]{--bg:#0a1224;--col:#101c34;--card:#16243f;--ink:#dbe6f8;--muted:#8ea3c8;--blue:#4d9dff;--line:#24365a;--rid:#b7c9e8;--field-bg:#0b1526;--field-border:#2a3d63;--btn-bg:#1a2b4d;--btn-border:#2c4270;--count-bg:#1a2b4d;--count-ink:#9db4d8;--bcard-bg:#101c34;--card-shadow:0 1px 2px rgba(2,6,16,.7);--panel-shadow:0 1px 3px rgba(2,6,16,.65);--header-shadow:0 1px 2px rgba(2,6,16,.55);--done:#45c78e;--progress:#f5b447;--blocked:#ff6b60;--idle:#7e93b8;--on-blue:#07101f;--header-bg:linear-gradient(180deg,#16284a,#0f1b33);--header-line:#2b4472;--col-border:#1f3157;--scrim:rgba(2,6,16,.62);--drawer-shadow:-10px 0 30px rgba(2,6,16,.7);--flash:rgba(77,156,255,.22);color-scheme:dark;}
+*{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);}
+/* The header stays pinned to the top of the viewport: the board scrolls, the theme toggle and the
+   source line do not. It reuses the surface colour (--card) plus a hairline border instead of a
+   saturated brand fill, so it reads as part of the board rather than a banner glued on top.
+   z-index keeps it above the cards; the faint shadow separates it while scrolling. */
+header{padding:14px 20px;background:var(--header-bg);color:var(--ink);display:flex;align-items:flex-start;gap:16px;position:sticky;top:0;z-index:10;border-bottom:1px solid var(--header-line);box-shadow:var(--header-shadow);}
+header .brand{flex:1 1 auto;min-width:0;}
+header h1{margin:0;font-size:18px;}
+header .meta{font-size:12px;opacity:.85;margin-top:4px;}
+/* Theme toggle: pinned to the far right of the header bar. The glyph shows the theme you would
+   switch TO (moon while light, sun while dark), so icon and tooltip always agree. */
+.icon-btn{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--ink);border-radius:6px;cursor:pointer;}
+.icon-btn:hover{border-color:var(--blue);color:var(--blue);}
+.icon-btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+.icon-btn svg{width:18px;height:18px;display:block;}
+.icon-btn .icon-sun{display:none;}
+html[data-theme="dark"] .icon-btn .icon-sun{display:block;}
+html[data-theme="dark"] .icon-btn .icon-moon{display:none;}
+.live{display:none;background:var(--blue);color:var(--on-blue);padding:2px 9px;border-radius:10px;font-size:11px;margin-left:10px;vertical-align:middle;}
+.controls{display:flex;gap:10px;align-items:center;padding:8px 20px 10px;flex-wrap:wrap;}
+.controls input{padding:6px 8px;border:1px solid var(--field-border);background:var(--field-bg);color:var(--ink);border-radius:4px;min-width:260px;}
+.btn{padding:6px 10px;border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--ink);border-radius:4px;cursor:pointer;font-size:13px;}
+.btn:hover{border-color:var(--blue);}
+.btn.active{background:var(--blue);color:var(--on-blue);border-color:var(--blue);}
+.board{display:flex;gap:14px;padding:0 20px 20px;align-items:flex-start;flex-wrap:wrap;}
+.col{background:var(--col);border:1px solid var(--col-border);border-radius:8px;width:280px;flex:1 1 280px;min-width:260px;padding:10px;}
+.col h2{font-size:14px;margin:4px 6px 10px;display:flex;justify-content:space-between;}
+.col .count{background:var(--count-bg);border-radius:10px;padding:1px 8px;font-size:12px;color:var(--count-ink);}
+.card{background:var(--card);border-radius:6px;padding:10px;margin-bottom:10px;box-shadow:var(--card-shadow);cursor:grab;}
+.card:active{cursor:grabbing;}
+.card.dragging{opacity:.4;}
+.pkg{font-weight:700;font-size:13px;color:var(--blue);}
+.title{font-size:13px;margin:4px 0;}
+.deps{font-size:11px;color:var(--muted);}
+.status{font-size:11px;color:var(--muted);margin-top:4px;}
+.reqs{margin-top:8px;border-top:1px solid var(--line);padding-top:6px;}
+.req{font-size:11px;display:flex;gap:6px;align-items:flex-start;margin:3px 0;line-height:1.3;}
+.dot{width:9px;height:9px;border-radius:50%;margin-top:3px;flex:0 0 auto;}
+.dot.done{background:var(--done);}
+.dot.progress{background:var(--progress);}
+.dot.blocked{background:var(--blocked);}
+.dot.backlog{background:var(--idle);}
+.dot.closed{background:var(--muted);}
+.req .rid{font-weight:600;color:var(--rid);}
+.blockers{margin:0 20px 24px;background:var(--card);border-radius:8px;padding:14px;box-shadow:var(--panel-shadow);}
+.blockers h2{margin:0 0 10px;font-size:15px;}
+.bcard{border-left:4px solid var(--blocked);padding:8px 10px;margin-bottom:8px;background:var(--bcard-bg);border-radius:0 4px 4px 0;}
+.bcard.unassigned{border-left-color:var(--idle);}
+.bcard .bid{font-weight:700;color:var(--blocked);}
+.bcard .bid.muted{color:var(--muted);}
+.bcard .blocks{font-size:11px;color:var(--muted);margin-top:2px;}
+.empty{color:var(--muted);font-size:12px;font-style:italic;padding:6px;}
+/* --- multi-view shell (P0-11) ---
+   The tabs only toggle visibility: every panel is already rendered, so switching dimension is instant
+   and the board keeps its filters and its drag state. The active tab is also the URL hash, which is
+   what makes a dimension linkable and Back / Forward work. */
+.hactions{display:flex;gap:8px;align-items:center;margin-left:auto;flex:0 0 auto;}
+/* ONE class, TWO rows: the page's tab bar (inside .stickybar) and the in-panel type-chips row (inside a
+   .section, which already supplies its own 14px inset). Their spacing therefore differs, so the tab bar's
+   padding is a SCOPED rule - writing it on the bare class would also shift the chips row 20px sideways and
+   drop its 4px bottom gap, as a side effect nobody asked for. The horizontal value is the page gutter, the
+   same 20px as .kpis / .board / .section / .banner, and tools/kanban-check.ps1 compares them. */
+.tabs{display:flex;gap:8px;align-items:center;padding:0 20px 4px;flex-wrap:wrap;}
+.stickybar .tabs{padding:10px 20px 0;}
+.tab{padding:6px 12px;border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--ink);border-radius:999px;cursor:pointer;font-size:13px;}
+.tab:hover{border-color:var(--blue);}
+.tab.active{background:var(--blue);color:var(--on-blue);border-color:var(--blue);}
+/* The panel's top gap IS the page gutter - the same 20px that .kpis / .board / .section / .banner use
+   horizontally - so the first row of a panel does not sit tighter than every gap inside it. The VALUE is a
+   design choice (P0-24); what must not drift is the relationship, and tools/kanban-check.ps1 reads both
+   numbers out of the artifact and compares them instead of pinning this literal. */
+.panel{padding-top:20px;}
+.panel.hidden{display:none;}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;padding:0 20px 14px;}
+.kpi{background:var(--card);border-radius:8px;padding:10px 12px;box-shadow:var(--panel-shadow);}
+.kpi .k{font-size:11px;color:var(--muted);}
+.kpi .v{font-size:20px;font-weight:600;margin-top:2px;}
+.kpi .v small{font-size:12px;font-weight:400;color:var(--muted);}
+.section{margin:0 20px 24px;background:var(--card);border-radius:8px;padding:14px;box-shadow:var(--panel-shadow);}
+.section h2{margin:0 0 10px;font-size:15px;}
+.tbl-wrap{max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:6px;}
+table.grid{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;}
+table.grid th,table.grid td{padding:6px 9px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);}
+/* A sticky header is only meaningful inside a scrolling, height-limited wrapper - which is why
+   .tbl-wrap declares max-height AND is listed in SCROLL_BOXES. tools/kanban-check.ps1 asserts both:
+   a header that never pins and a scroll position that is silently lost are the same class of bug. */
+table.grid thead th{position:sticky;top:0;z-index:1;background:var(--col);color:var(--ink);white-space:nowrap;}
+table.grid tbody tr:last-child td{border-bottom:none;}
+.nowrap{white-space:nowrap;}
+.num{text-align:right;}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+.chip{padding:3px 9px;border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--ink);border-radius:999px;cursor:pointer;font-size:12px;}
+.chip:hover{border-color:var(--blue);}
+.chip.active{background:var(--blue);color:var(--on-blue);border-color:var(--blue);}
+.bar{display:inline-block;width:70px;height:6px;background:var(--col);border-radius:3px;overflow:hidden;vertical-align:middle;margin-right:6px;}
+.bar > i{display:block;height:100%;background:var(--done);}
+/* --- document drawer (P0-12) ---
+   A document name opens a drawer instead of sending the reader to a raw .md file (which a browser renders
+   as unstyled plain text). The panel is fixed to the right, above the sticky header (z-index 30/31 vs
+   10/11), and the scrim dims the board without unmounting it - the board keeps its scroll, its filters and
+   its drag state, so closing the drawer returns the reader exactly where they were. */
+.dmask{position:fixed;top:0;right:0;bottom:0;left:0;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity .16s ease-out;z-index:30;}
+.dmask.open{opacity:1;pointer-events:auto;}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(920px,94vw);background:var(--card);border-left:1px solid var(--line);box-shadow:var(--drawer-shadow);transform:translateX(102%);transition:transform .18s ease-out;z-index:31;display:flex;flex-direction:column;}
+.drawer.open{transform:none;}
+.dhead{display:flex;gap:10px;align-items:flex-start;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--card);flex:0 0 auto;}
+.dhead .dt{flex:1 1 auto;min-width:0;}
+.dhead .dn{font-size:14px;font-weight:600;}
+.dhead .dp{font-size:11px;color:var(--muted);margin-top:3px;word-break:break-all;}
+/* The drawer body is a scroll box, so it is registered in SCROLL_BOXES - a document can be long, and a
+   re-render must not throw the reader back to its first line. */
+.dbody{flex:1 1 auto;overflow:auto;padding:16px 20px 48px;overscroll-behavior:contain;}
+.dstate{padding:18px 4px;color:var(--muted);font-size:13px;line-height:1.7;}
+/* Markdown typography, scoped to .md so a rendered document can never restyle the board itself. */
+.md{font-size:13px;line-height:1.7;}
+.md h1,.md h2,.md h3,.md h4{margin:18px 0 8px;line-height:1.35;}
+.md h1{font-size:19px;padding-bottom:6px;border-bottom:1px solid var(--line);}
+.md h2{font-size:16px;}
+.md h3{font-size:14.5px;}
+.md h4{font-size:13px;color:var(--muted);}
+.md p{margin:8px 0;}
+.md ul,.md ol{margin:8px 0;padding-left:24px;}
+.md li{margin:3px 0;}
+.md code{font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:12px;background:var(--col);padding:1px 4px;border-radius:3px;}
+.md pre{background:var(--col);border:1px solid var(--line);border-radius:6px;padding:10px 12px;overflow:auto;margin:10px 0;}
+.md pre code{background:none;padding:0;}
+.md blockquote{margin:10px 0;padding:2px 12px;border-left:3px solid var(--line);color:var(--muted);}
+.md hr{border:none;border-top:1px solid var(--line);margin:16px 0;}
+.md table{border-collapse:collapse;font-size:12px;margin:10px 0;display:block;overflow:auto;max-width:100%;}
+.md th,.md td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top;}
+.md th{background:var(--col);font-weight:600;}
+.md a{color:var(--blue);cursor:pointer;}
+.md img{max-width:100%;}
+.dim{color:var(--muted);}
+/* Check lists reuse the existing status dots as the marker instead of introducing "good / warn / bad" text
+   colours: the dots are already shape-coded AND already contrast-asserted at 3:1, whereas a coloured
+   sentence would need 4.5:1 and would be the only place in the board that had it. */
+.checks{list-style:none;margin:0;padding:0;}
+.checks li{display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px;line-height:1.5;}
+.checks li:last-child{border-bottom:none;}
+.checks .dot{margin-top:5px;}
+.kv{font-size:12px;color:var(--muted);margin-top:6px;}
+footer{padding:10px 20px;font-size:11px;color:var(--muted);}
+/* --- the head band (P0-17, aligned to the source board) ---
+   The title band and the toolbar band share ONE sticky wrapper, and the toolbar hangs directly under the
+   header: the header's height depends on whether the meta line wraps, so the offset is MEASURED into
+   --hdr-h instead of assumed. Inside the toolbar, #hits is the toolbar's own read-out line, and
+   #boardtools is hidden whenever the open tab is not the board - the stage filter, the sort order and
+   the resync button only mean something where the lanes are. */
+.stickybar{position:sticky;top:var(--hdr-h,74px);z-index:11;background:var(--bg);border-bottom:1px solid var(--line);}
+.tools{display:inline-flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.tools.hidden{display:none;}
+.hits{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.opt{display:inline-flex;gap:5px;align-items:center;font-size:12px;color:var(--muted);}
+.opt select,.opt input{padding:3px 4px;border:1px solid var(--field-border);background:var(--field-bg);color:var(--ink);border-radius:4px;font-size:12px;}
+/* --- the reader's own view (P0-15) ---
+   The board is a read-only projection of the docs, so the only state it may keep is the reader's view.
+   A collapsible lane needs a control that looks like one: pointer cursor, keyboard reachable, visible
+   focus ring. */
+.col h2{cursor:pointer;}
+.col h2:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+/* The change banner (P0-15): the live board re-renders without a reload, so "the docs moved while you
+   were reading" has to be said out loud instead of left to be noticed. Colours go through the palette,
+   and the ink sits on --card - a pair the gate already asserts. */
+.banner{margin:0 20px 12px;padding:9px 12px;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:4px;font-size:12px;box-shadow:var(--panel-shadow);}
+.banner.hidden{display:none;}
+.banner .bclose{float:right;margin-left:10px;border:none;background:none;color:var(--muted);cursor:pointer;font-size:12px;}
+/* There is deliberately NO offset rule for this header. `top` on a sticky element is measured against its
+   OWN scroll box, so adding the page header's height (P0-15 did exactly that) pushed the header down over
+   the first rows: it floated in the middle of the table instead of pinning. It pins at top:0 of its box -
+   the rule above - which is what the source board does, and tools/kanban-check.ps1 now fails if such an
+   offset rule comes back, so the mistake cannot be made quietly a second time. */
+/* The flash marks what just changed. It is a RING rather than a background tint: a tint would put the
+   banner text on a translucent colour, and ink-on-surface is exactly what the gate asserts. */
+.banner.flash{outline:3px solid var(--blue);outline-offset:2px;}
+/* --- jumping to the row a number refers to (P0-20) ---
+   A number or an id that stands for a row in ANOTHER dimension is a link, not a label: clicking it switches
+   to the panel that owns the row and pulses it, so nobody has to hunt for it by hand. Both palettes define
+   --flash because the gate asserts the two key sets are identical - a key missing from the dark block does
+   not error, it silently keeps the light value. */
+[data-goto]{cursor:pointer;}
+[data-goto]:hover{text-decoration:underline;}
+.mini-btn{padding:0 5px;border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--ink);border-radius:3px;font-size:10px;line-height:16px;cursor:pointer;}
+.mini-btn:hover{border-color:var(--blue);color:var(--blue);}
+.mini-btn:focus-visible{outline:2px solid var(--blue);outline-offset:1px;}
+.qids{display:flex;flex-wrap:wrap;gap:5px;}
+.qid{font-size:11px;padding:1px 6px;border:1px solid var(--line);border-radius:999px;background:var(--card);font-variant-numeric:tabular-nums;}
+/* The destination pulses, and the rule is SCOPED to rows / cards / chips on purpose: the change banner
+   flashes with a RING (.banner.flash) because a tint would put its text on a translucent colour, and
+   ink-on-surface is exactly what the gate asserts. A bare `.flash` rule would quietly undo that. */
+@keyframes flashbg{0%{background:var(--flash);}100%{background:transparent;}}
+tr.flash>td,.card.flash,.qid.flash{animation:flashbg 1.3s ease-out 2;}
+.card.flash{outline:2px solid var(--blue);outline-offset:1px;}
+/* --- the manual-move notice bar (P0-20) ---
+   A hand move is a fact the docs do not know about, so it has to be visible: the bar names the count, offers
+   the way back, and lists overrides the docs have invalidated. `warn` only changes the accent bar, so no new
+   colour - and no new pair for the gate to measure. */
+.banner.warn{border-left-color:var(--progress);}
+/* --- print (P0-15) ---
+   A printout is a summary, not the app: the navigation (theme / sync, tabs, filters, the LIVE badge, the
+   drawer) goes away, and every height-limited scroll box is opened up or the paper is cut at whatever the
+   viewport happened to show. No colour is declared here - the palette rules already cover both themes,
+   and a literal would fail tools/kanban-check.ps1. The footer stays: on paper, provenance is content. */
+@media print{
+  header,.stickybar{position:static;box-shadow:none;}
+  .tabs,.controls,.banner{display:none;}
+  .panel.hidden{display:block;}
+  .board{display:block;overflow:visible;}
+  .col{max-height:none;margin-bottom:10px;}
+  .tbl-wrap{max-height:none;overflow:visible;}
+  .card,.bcard,.section{break-inside:avoid;}
+  .drawer,.dmask{display:none;}
+}
+</style>
+<script>
+/* Theme bootstrap: runs before first paint so a dark-theme user never sees a white flash.
+   Saved choice wins; otherwise follow the operating system. */
+(function(){try{
+  var s=localStorage.getItem('{{APP_KEY}}_kanban_theme');
+  var t=(s==='dark'||s==='light')?s:((window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light');
+  document.documentElement.setAttribute('data-theme',t);
+}catch(e){}})();
+</script>
+</head>
+<body>
+<header>
+<div class="brand">
+<h1>{{PROJECT_NAME}} 项目看板<span class="live" id="live" role="status" aria-live="polite">实时</span></h1>
+<div class="meta" id="meta"></div>
+</div>
+<button class="icon-btn" id="theme" type="button" title="切换到深色主题" aria-label="切换到深色主题">
+<svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4M4.8 4.8l1.7 1.7M17.5 17.5l1.7 1.7M19.2 4.8l-1.7 1.7M6.5 17.5l-1.7 1.7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+</button>
+</header>
+<div class="stickybar" id="stickybar">
+<div class="tabs" id="tabs" role="tablist" aria-label="看板维度">
+<button class="tab active" id="tab-overview" role="tab" aria-selected="true" aria-controls="p-overview" data-tab="overview">工作包</button>
+<button class="tab" id="tab-next" role="tab" aria-selected="false" aria-controls="p-next" data-tab="next">待办 / 下一步</button>
+<button class="tab" id="tab-stages" role="tab" aria-selected="false" aria-controls="p-stages" data-tab="stages">阶段</button>
+<button class="tab" id="tab-scope" role="tab" aria-selected="false" aria-controls="p-scope" data-tab="scope">范围与优先级</button>
+<button class="tab" id="tab-docs" role="tab" aria-selected="false" aria-controls="p-docs" data-tab="docs">文档</button>
+<button class="tab" id="tab-timeline" role="tab" aria-selected="false" aria-controls="p-timeline" data-tab="timeline">不占包位批次</button>
+<button class="tab" id="tab-gates" role="tab" aria-selected="false" aria-controls="p-gates" data-tab="gates">门禁</button>
+<button class="tab" id="tab-decisions" role="tab" aria-selected="false" aria-controls="p-decisions" data-tab="decisions">决议</button>
+<button class="tab" id="tab-health" role="tab" aria-selected="false" aria-controls="p-health" data-tab="health">健康</button>
+</div>
+<div class="controls">
+<input id="search" placeholder="筛选当前页签（编号 / 文本 / PR / 需求）..." aria-label="筛选当前页签">
+<span class="hits" id="hits"></span>
+<!-- The stage filter, the sort order and the resync button belong to the board, so they hide with it. -->
+<span class="tools" id="boardtools">
+<select id="stagefilter" aria-label="按阶段筛选"></select>
+<label class="opt" title="隐藏没有任何卡片的泳道"><input type="checkbox" id="opt-empty"> 隐藏空列</label>
+<label class="opt" title="卡片排序方式">排序<select id="opt-sort"><option value="doc">文档顺序</option><option value="id">编号倒序</option><option value="pr">PR 新→旧</option></select></label>
+<button class="btn" id="reset">复位为文档值</button>
+<button class="btn" id="sync">立即同步</button>
+</span>
+</div>
+</div>
+<div class="banner hidden" id="changed" role="status" aria-live="polite"></div>
+<div class="banner hidden" id="ovbanner" role="status" aria-live="polite"></div>
+<div class="panel" id="p-overview" role="tabpanel" aria-labelledby="tab-overview">
+<div class="kpis" id="kpis"></div>
+<div class="board" id="board"></div>
+</div>
+<div class="panel hidden" id="p-stages" role="tabpanel" aria-labelledby="tab-stages">
+<div class="section"><h2>阶段（docs/项目时间线.md §2）</h2><div class="tbl-wrap" id="stage-rows"></div></div>
+</div>
+<div class="panel hidden" id="p-timeline" role="tabpanel" aria-labelledby="tab-timeline">
+<div class="section"><h2>不占包位批次与顺带修复（docs/项目时间线.md §1；类型为「门禁」的条目在「门禁」页签）</h2><div class="tabs" id="typechips"></div><div class="tbl-wrap" id="batch-rows"></div></div>
+</div>
+<div class="panel hidden" id="p-gates" role="tabpanel" aria-labelledby="tab-gates">
+<div class="section"><h2>门禁（docs/项目时间线.md §1 中类型为「门禁」的条目）</h2><div class="tbl-wrap" id="gate-rows"></div></div>
+</div>
+<div class="panel hidden" id="p-decisions" role="tabpanel" aria-labelledby="tab-decisions">
+<div class="blockers" id="blockers"><h2>待决 / 阻塞（docs/03 §8）</h2></div>
+</div>
+<div class="panel hidden" id="p-docs" role="tabpanel" aria-labelledby="tab-docs">
+<div class="section"><h2>文档（docs/）——点名称在此处阅读</h2><div class="tbl-wrap" id="docmap"></div></div>
+</div>
+<div class="panel hidden" id="p-health" role="tabpanel" aria-labelledby="tab-health">
+<div class="section"><h2>一致性检查</h2><ul class="checks" id="health-checks"></ul></div>
+<div class="section"><h2>文档新鲜度</h2><div id="freshness"></div></div>
+</div>
+<div class="panel hidden" id="p-next" role="tabpanel" aria-labelledby="tab-next">
+<div id="next-body"></div>
+<div class="section"><h2>未结项</h2><ul class="checks" id="outstanding"></ul></div>
+</div>
+<div class="panel hidden" id="p-scope" role="tabpanel" aria-labelledby="tab-scope">
+<div class="section"><h2>象限（派生视图，§1.1）</h2><div class="tbl-wrap" id="quadrants"></div></div>
+<div class="section"><h2>登记条目（候选池）</h2><div class="kv" id="scopecounts"></div><div class="tbl-wrap" id="scope-rows"></div></div>
+<div class="section"><h2>关闭与归档（§二）</h2><div class="tbl-wrap" id="closed"></div></div>
+</div>
+<div class="dmask" id="dmask"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="文档预览" aria-hidden="true">
+<div class="dhead">
+<div class="dt"><div class="dn" id="dtitle">文档</div><div class="dp" id="dpath"></div></div>
+<div class="hactions">
+<a class="btn" id="dopen" href="#" target="_blank" rel="noopener" title="在新标签页打开原始文件（Ctrl/Command 点文档名同效）">原始文件</a>
+<button class="btn" id="dclose" type="button" title="关闭（Esc）">关闭</button>
+</div>
+</div>
+<div class="dbody" id="dbody"></div>
+</aside>
+<footer>真相源：docs/03-P0执行计划.md 与 docs/需求跟踪矩阵.md。拖动重排只是个人视图；重跑 tools/build-kanban.ps1 可重新同步，或由 tools/serve-kanban.ps1 提供服务以实时同步。生成时间：<span id="gen"></span></footer>
+<script>
+var DATA = __DATA__;
+var COLS=[{k:'backlog',l:'未开始'},{k:'progress',l:'进行中'},{k:'blocked',l:'阻塞'},{k:'done',l:'已完成'},{k:'closed',l:'取消 / 范围外'}];
+var overrides = JSON.parse(localStorage.getItem('{{APP_KEY}}_kanban_overrides')||'{}');
+/* Status -> lane, by code point (see CONTRIBUTING 9.3 for the mapping and why it must stay in step
+   with tools/kanban-data.ps1). \u274C is 取消 / 转为范围外: it must NOT fall through to "backlog",
+   which would show a cancelled item as pending work. */
+function colOf(s){if(!s)return'backlog';if(s.indexOf('\u2705')>=0)return'done';if(s.indexOf('\uD83D\uDD04')>=0)return'progress';if(s.indexOf('\u23F8')>=0)return'blocked';if(s.indexOf('\u274C')>=0)return'closed';return'backlog';}
+function esc(t){return (t||'').replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+/* A PR number becomes a link as soon as the model carries the repository URL (kanban-data.ps1 reads
+   `git remote get-url origin`), so a card or a row is one click away from its pull request. When that field
+   is empty - a clone with no usable remote - the number stays PLAIN TEXT: a link that cannot be resolved must
+   never be invented, and a board built on such a machine has to look deliberate rather than broken. */
+function prHtml(pr){
+  var s=String(pr==null?'':pr).replace(/\*/g,'');
+  if(!s||s==='\u2014')return esc(s);
+  var m=s.match(/#?(\d+)/);
+  if(!DATA.repoUrl||!m)return esc(s);
+  return '<a href="'+esc(DATA.repoUrl)+'/pull/'+m[1]+'" target="_blank" rel="noopener">'+esc(s)+'</a>';
+}
+var stageFilter='ALL';
+var search='';
+function effCol(p){return overrides[p.id]||p.column;}
+/* --- the reader's own view: preferences, move history, change banner (P0-15) ---
+   The only state this board may keep is the reader's own view (dragged lanes, collapsed lanes, theme).
+   It all goes through ONE preferences key, so a half-written or stale blob cannot come back as a
+   half-applied board. */
+var PREF_KEY='{{APP_KEY}}_kanban_prefs';
+function loadPrefs(){try{return JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{};}catch(e){return {};}}
+var prefs=loadPrefs();
+/* The toolbar state is the reader's own view, so it lives in the same single blob as the collapsed lanes
+   (CONTRIBUTING §10 6). Initialised AFTER prefs: the two vars above are declared earlier in the file. */
+stageFilter=prefs.stage||'ALL';
+search=prefs.search||'';
+var hideEmpty=!!prefs.hideempty;
+var sortMode=prefs.sort||'doc';
+function setPref(k,v){
+  prefs[k]=v;
+  try{localStorage.setItem(PREF_KEY,JSON.stringify(prefs));}catch(e){}
+}
+function isCollapsed(k){var c=(prefs.collapsed||{});return !!c[k];}
+function toggleCollapse(k){
+  var c=(prefs.collapsed||{});
+  c[k]=!c[k];
+  setPref('collapsed',c);
+  render();
+}
+function pkgById(id){var hit=null;DATA.packages.forEach(function(p){if(p.id===id)hit=p;});return hit;}
+function saveOverrides(){try{localStorage.setItem('{{APP_KEY}}_kanban_overrides',JSON.stringify(overrides));}catch(e){}}
+/* Move history lives IN MEMORY on purpose: it answers "I just dropped that in the wrong lane", not
+   "what did this board look like an hour ago" - a persisted log would claim to know the latter. */
+var moveStack=[];
+function recordMove(id,to){
+  var p=pkgById(id);if(!p)return false;
+  var from=effCol(p);if(from===to)return false;
+  moveStack.push({id:id,from:from});
+  return true;
+}
+/* The restore decision is a pure function so it can be asserted without a DOM: null means "delete the
+   override entirely" (the package sits in its documented lane again). Writing the documented column back
+   as an override would leave a permanent fake edit behind. */
+function undoRestore(entry,pColumn){return (entry.from===pColumn)?null:entry.from;}
+function undoMove(){
+  var e=moveStack.pop();
+  if(!e)return false;
+  var p=pkgById(e.id);if(!p)return false;
+  var v=undoRestore(e,p.column);
+  if(v===null)delete overrides[e.id];else overrides[e.id]=v;
+  saveOverrides();
+  render();
+  return true;
+}
+function moveBy(id,step){
+  var p=pkgById(id);if(!p)return false;
+  var cur=effCol(p),i=-1;
+  COLS.forEach(function(c,j){if(c.k===cur)i=j;});
+  if(i<0)return false;
+  var j=i+step;
+  if(j<0||j>=COLS.length)return false;
+  if(!recordMove(id,COLS[j].k))return false;
+  overrides[id]=COLS[j].k;
+  saveOverrides();
+  render();
+  return true;
+}
+/* --- the notice bar for hand moves (P0-20) ---
+   A move made by hand exists only in this browser, so it must never be invisible: the bar says how many
+   cards are moved, offers the way back, and lists the overrides the docs have invalidated. The DECISION is
+   a pure function of (packages, overrides, history) - which is exactly why it can be asserted without a DOM
+   - and the banner below only renders it. */
+function liveOverrides(pkgs,ovs){
+  var out=[];
+  (pkgs||[]).forEach(function(p){
+    var v=(ovs||{})[p.id];
+    if(v&&v!==p.column)out.push(p.id);
+  });
+  return out;
+}
+/* Two kinds of entry count as dropped, and both are facts this model can actually see:
+     - the id is not in the model any more (a document renamed or removed the package); and
+     - the override repeats the documented column, so it is a no-op that would outlive a reset.
+   The SOURCE board can also see a third kind - "a document moved this card while my override was stored" -
+   because it persists {column, from} per entry. This repo stores id -> lane only, so that case is not
+   detectable here without changing the stored format; that is deliberately out of this batch. */
+function droppedOverrides(pkgs,ovs){
+  var out=[],known={};
+  (pkgs||[]).forEach(function(p){
+    known[p.id]=true;
+    var v=(ovs||{})[p.id];
+    if(v&&v===p.column)out.push({id:p.id,why:'noop'});
+  });
+  Object.keys(ovs||{}).forEach(function(id){if(!known[id])out.push({id:id,why:'gone'});});
+  return out;
+}
+function barModel(pkgs,ovs,stack){
+  var top=(stack&&stack.length)?stack[stack.length-1]:null;
+  return {live:liveOverrides(pkgs,ovs),dropped:droppedOverrides(pkgs,ovs),undoId:top?top.id:null};
+}
+function updateOverridesBanner(){
+  var host=document.getElementById('ovbanner');if(!host)return;
+  var m=barModel(DATA.packages||[],overrides,moveStack);
+  if(!m.live.length&&!m.dropped.length&&!m.undoId){host.className='banner hidden';host.innerHTML='';return;}
+  var h='';
+  /* Undo is offered right where the move is announced: a hand move is cheap to make and easy to regret, and
+     "which card was it again" is not something the reader should have to reconstruct. */
+  if(m.undoId)h+='<button class="mini-btn" type="button" data-act="undo" title="把 '+esc(m.undoId)+' 恢复到移动前的位置">撤销上一次移动</button> ';
+  if(m.live.length){
+    h+='<span><b>'+m.live.length+'</b> 张卡片只在浏览器内被手工移动 —— 文档仍是唯一真源。</span> ';
+    h+='<button class="mini-btn" type="button" data-act="clear-ov">全部复位</button> ';
+  }
+  if(m.dropped.length){
+    h+='<span>已失效：'+m.dropped.map(function(d){return '<b>'+esc(d.id)+'</b>（'+(d.why==='noop'?'与文档值相同':'文档里已无此包')+'）';}).join('、')+'</span> ';
+    h+='<button class="mini-btn" type="button" data-act="clear-stale">清除记录</button>';
+  }
+  host.className='banner'+(m.dropped.length?' warn':'');
+  host.innerHTML=h;
+}
+/* Emptying the overrides empties the history with them: an undo after that would resurrect the very move the
+   reader just threw away - the same rule the reset button follows. */
+function clearOverrides(){overrides={};moveStack=[];saveOverrides();render();}
+function clearDropped(){droppedOverrides(DATA.packages||[],overrides).forEach(function(d){delete overrides[d.id];});saveOverrides();render();}
+/* --- jumping to the row a number refers to (P0-20) ---
+   Key format "<kind>:<id>" (pkg: / stage: / scope: / doc:), the convention the source board already uses.
+   Two aliases resolve, so a key written for that board - or one already sitting in the URL hash - still
+   lands: board -> overview, deps -> scope; and a "docs/<name>" key resolves like the bare name. */
+var GOTO_ALIAS={board:'overview',deps:'scope'};
+/* A document can be referred to by name or by path - "doc:41-x.md" and "doc:docs/41-x.md" mean the same
+   row - so the path's docs/ prefix is dropped while the kind prefix is KEPT, because the row's own key
+   carries it and dropping it would leave the two forms pointing at different things. */
+function normalizeGoto(go){
+  var parts=String(go||'').split(':');
+  var tab=GOTO_ALIAS[parts[0]]||parts[0];
+  var key=parts.slice(1).join(':');
+  var m=/^([a-z]+):docs\//.exec(key);
+  if(m)key=m[1]+':'+key.slice(m[0].length);
+  else key=key.replace(/^docs\//,'');
+  return {tab:tab,key:key};
+}
+function reveal(tab,key){
+  selectTab(tab);
+  if(!key)return true;
+  var host=document.getElementById('p-'+tab);if(!host)return false;
+  var el=null;
+  try{el=host.querySelector('[data-key="'+key+'"]');}catch(e){el=null;}
+  if(!el)return false;
+  if(el.scrollIntoView){try{el.scrollIntoView({block:'center'});}catch(e){}}
+  el.classList.add('flash');
+  setTimeout(function(){el.classList.remove('flash');},2600);
+  return true;
+}
+/* The change banner compares two models and returns sentences. Pure on purpose - the wording is
+   assertable without a DOM - and it introduces no new data source: only facts the board already shows.
+   Volatile fields (generatedAt) are not compared, for the same reason the poll ignores them. */
+function modelDiff(a,b){
+  if(!a||!b)return [];
+  var out=[],oldP={},newP={},oldD={},newD={};
+  (a.packages||[]).forEach(function(p){oldP[p.id]=p;});
+  (b.packages||[]).forEach(function(p){newP[p.id]=p;});
+  (a.docmap||[]).forEach(function(d){oldD[d.name]=d.last;});
+  (b.docmap||[]).forEach(function(d){newD[d.name]=d.last;});
+  Object.keys(newP).forEach(function(id){if(!oldP[id])out.push('新增工作包 '+id);});
+  Object.keys(oldP).forEach(function(id){if(!newP[id])out.push('工作包 '+id+' 已移除');});
+  /* Compared on the lane field, not on a re-derivation from status: column is what effCol() falls back
+     to, so this reports exactly the move the board is about to draw. */
+  Object.keys(newP).forEach(function(id){
+    if(!oldP[id])return;
+    var x=oldP[id].column,y=newP[id].column;
+    if(x!==y)out.push(id+'：'+x+' → '+y);
+  });
+  if((a.blockers||[]).length!==(b.blockers||[]).length){
+    out.push('待决事项 '+(a.blockers||[]).length+' → '+(b.blockers||[]).length);
+  }
+  if((a.timeline||[]).length!==(b.timeline||[]).length){
+    out.push('时间线条目 '+(a.timeline||[]).length+' → '+(b.timeline||[]).length);
+  }
+  Object.keys(newD).forEach(function(n){
+    if(!(n in oldD))out.push('新增文档 docs/'+n);
+    else if(oldD[n]!==newD[n])out.push('docs/'+n+' 有改动');
+  });
+  Object.keys(oldD).forEach(function(n){if(!(n in newD))out.push('docs/'+n+' 已移除');});
+  return out;
+}
+function showChanged(notes){
+  var host=document.getElementById('changed');if(!host)return;
+  if(!notes||!notes.length){host.classList.add('hidden');host.innerHTML='';return;}
+  var joined=notes.slice(0,6).join('; ')+(notes.length>6?('；另有 '+(notes.length-6)+' 条'):'');
+  host.innerHTML='<button class="bclose" id="bclose" type="button">关闭</button>'
+    +'自上次同步以来的变化：'+esc(joined);
+  host.classList.remove('hidden');
+  /* Flash it: a banner that appears while the reader is looking elsewhere is easy to miss. */
+  host.classList.add('flash');
+  setTimeout(function(){host.classList.remove('flash');},2600);
+  var b=document.getElementById('bclose');
+  if(b)b.addEventListener('click',function(){host.classList.add('hidden');});
+}
+/* ONE offset comes out of this measurement: --hdr-h, the header's own height, which is all the toolbar
+   band needs to pin itself under the header. The band's height is deliberately NOT published for the
+   table header to add: a sticky table header pins at top:0 of ITS OWN scroll box, and an offset there
+   only pushes it over the first rows (P0-15 did that; P0-18 removed it). Measured, not guessed: the meta
+   line wraps and the header grows with it. */
+function measureHeader(){
+  var off=0;
+  try{
+    var h=document.querySelector('header');
+    off=(h&&h.getBoundingClientRect)?Math.max(0,Math.round(h.getBoundingClientRect().height)):0;
+    document.documentElement.style.setProperty('--hdr-h',off+'px');
+  }catch(e){}
+  return off;
+}
+/* Search covers the WHOLE row, not just the package text: a PR number, a requirement id or a status is
+   exactly what gets searched for, and none of those were in the haystack before. */
+function text(t){return String(t===undefined||t===null?'':t).replace(/\\s+/g,' ').trim();}
+function hit(){if(!search)return true;var s=text([].slice.call(arguments).join(' ')).toLowerCase();return s.indexOf(search.toLowerCase())>=0;}
+function visible(p){
+  if(stageFilter!=='ALL'&&p.stage!==stageFilter)return false;
+  var reqs=(p.reqs||[]).map(function(r){return r.id+' '+r.title+' '+r.status;}).join(' ');
+  return hit(p.id,p.content,p.deps,p.status,p.pr,reqs);
+}
+/* Card order: the document order is the plan's own order and stays the default. The alternatives exist
+   because "what shipped last" and "what is numbered last" are the two questions this board gets asked. */
+function prNum(pr){var m=text(pr).match(/#?(\\d+)/);return m?parseInt(m[1],10):-1;}
+function orderedPkgs(list){
+  var a=list.slice();
+  if(sortMode==='id')a.sort(function(x,y){return String(y.id).localeCompare(String(x.id));});
+  else if(sortMode==='pr')a.sort(function(x,y){return prNum(y.pr)-prNum(x.pr);});
+  return a;
+}
+function stageList(){
+  var seen={},out=[];
+  (DATA.packages||[]).forEach(function(p){if(p.stage&&!seen[p.stage]){seen[p.stage]=1;out.push(p.stage);}});
+  out.sort(function(a,b){return (parseInt(a.replace(/\\D/g,''),10)||0)-(parseInt(b.replace(/\\D/g,''),10)||0);});
+  return out;
+}
+/* The stage filter is a select, not a row of buttons: 15 stages of buttons pushed everything else onto a
+   second row. Each option carries its package count. NOTE: the select is #stagefilter, not #stages -
+   #stages is the panel's own table host in this repository, and two elements cannot share an id. */
+function renderStages(){
+  var sel=document.getElementById('stagefilter');if(!sel)return;
+  var stages=stageList();
+  /* The plan can lose a stage while the page is open: fall back to "all" instead of showing an empty
+     board with no explanation. */
+  if(stageFilter!=='ALL'&&stages.indexOf(stageFilter)<0)stageFilter='ALL';
+  sel.innerHTML='';
+  var mk=function(label,val){var o=document.createElement('option');o.value=val;o.textContent=label;if(stageFilter===val)o.selected=true;return o;};
+  sel.appendChild(mk('全部阶段','ALL'));
+  stages.forEach(function(s){var n=DATA.packages.filter(function(p){return p.stage===s;}).length;sel.appendChild(mk(s+'（'+n+'）',s));});
+}
+/* The toolbar line spells out what the filter is doing, so a filtered (or empty) screen is never
+   ambiguous - and it is explicit about Health being exempt. */
+function updateHits(){
+  var el=document.getElementById('hits');if(!el)return;
+  if(!search){el.textContent='';return;}
+  if(activeTab==='overview'){el.textContent='匹配 '+DATA.packages.filter(function(p){return visible(p);}).length+' / '+DATA.packages.length+' 张卡片';}
+  else if(activeTab==='health'){el.textContent='「健康」页签不参与筛选';}
+  else{el.textContent='筛选：'+search;}
+}
+/* --- render entry (the only door) ---
+   Re-renders go through render(), never renderBoard() directly: that is what makes two guarantees hold
+   on every path (a filter keystroke, a lane drop, a live sync):
+   1. the board is never rebuilt while a card is in the air - the element the cursor is holding would be
+      replaced and the drag would end with no drop; and
+   2. the reading position survives the rebuild.
+   Scroll positions are carried across by hand because a rebuild empties the board first, which collapses
+   the document height and clamps scrollTop to 0 - the reader is thrown to the top even though nothing
+   they were reading changed. Boxes are matched POSITIONALLY: the board's shape is fixed, so box #n after
+   the rebuild is box #n before it.
+   >> A new scroll container must be added to SCROLL_BOXES, or its position is silently not preserved. */
+var dragging=false;       /* a card is in the air */
+var pendingRender=false;  /* a sync that landed mid-drag, held until the drag ends */
+var inScrollGuard=false;  /* re-entrancy flag for the scroll guard */
+var SCROLL_BOXES='.col,.blockers,.tbl-wrap,.dbody';
+function mayRender(){
+  if(dragging){pendingRender=true;return false;}
+  pendingRender=false;
+  return true;
+}
+function scrollSnapshot(){
+  var out={win:0,boxes:[]};
+  try{ out.win=(document.scrollingElement?document.scrollingElement.scrollTop:0)||0; }catch(e){}
+  try{ document.querySelectorAll(SCROLL_BOXES).forEach(function(el){ out.boxes.push(el.scrollTop||0); }); }catch(e){}
+  return out;
+}
+function scrollRestore(s){
+  if(!s)return;
+  try{ if(document.scrollingElement)document.scrollingElement.scrollTop=s.win; }catch(e){}
+  try{ document.querySelectorAll(SCROLL_BOXES).forEach(function(el,i){ if(typeof s.boxes[i]==='number')el.scrollTop=s.boxes[i]; }); }catch(e){}
+}
+/* Re-entrant on purpose: a render triggered from inside a guarded render must not snapshot twice and
+   fight over the restore. The restore sits in the finally so the guarantee is unconditional: a render
+   that throws (a doc whose shape the renderer did not expect) must not ALSO throw the reader to the top
+   of the page. */
+function withScroll(fn){
+  if(inScrollGuard){fn();return;}
+  var snap=scrollSnapshot();
+  inScrollGuard=true;
+  try{fn();}finally{inScrollGuard=false;scrollRestore(snap);}
+}
+function render(){
+  if(!mayRender())return;
+  withScroll(renderEverything);
+}
+/* Every panel is small (a few hundred rows at most), so a full re-render on each data change stays
+   cheaper than tracking dirty panels - and it cannot leave a stale panel behind. */
+function renderEverything(){
+  renderStages();renderKpis();renderBoard();renderStagesPanel();renderTimelinePanel();renderGatesPanel();renderDecisions();renderDocMap();
+  renderHealthPanel();renderNextPanel();renderScopePanel();updateHits();
+  /* The notice bar is rendered HERE rather than at every action that can change it: it is a pure view of
+     (overrides, history), so rendering it with everything else means a live sync that invalidates an
+     override updates it as well, and a call site can no longer be forgotten. */
+  updateOverridesBanner();
+}
+function renderBoard(){
+  var board=document.getElementById('board');board.innerHTML='';
+  var counts={};COLS.forEach(function(c){counts[c.k]=0;});
+  DATA.packages.forEach(function(p){if(visible(p))counts[effCol(p)]++;});
+  COLS.forEach(function(c){
+    /* The cancelled lane only appears when something is actually cancelled: an always-empty column is
+       noise, and 取消 / 范围外 is a low-frequency state (CONTRIBUTING §9.3). */
+    /* The cancelled lane is hidden whenever it is empty - that is a documented rule (CONTRIBUTING §9.3),
+       not a preference. Every OTHER empty lane follows the toolbar's "hide empty" option. */
+    if(counts[c.k]===0&&(c.k==='closed'||hideEmpty))return;
+    var collapsed=isCollapsed(c.k);
+    var colEl=document.createElement('div');colEl.className='col';colEl.dataset.col=c.k;
+    if(collapsed)colEl.classList.add('collapsed');
+    colEl.innerHTML='<h2>'+c.l+'<span class="count">'+counts[c.k]+'</span></h2>';
+    /* The lane header is the collapse control: it is the one element of a lane that is always there
+       (cards come and go), and a mouse-only control would make the collapse a dead end on a keyboard -
+       hence focusable, role=button, and Enter / Space. */
+    var h2=colEl.querySelector('h2');
+    if(h2){
+      h2.tabIndex=0;
+      h2.setAttribute('role','button');
+      h2.setAttribute('aria-expanded',collapsed?'false':'true');
+      h2.title=collapsed?'展开本泳道':'收起本泳道';
+      h2.addEventListener('click',function(){toggleCollapse(c.k);});
+      h2.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleCollapse(c.k);}});
+    }
+    /* The order is the reader's choice (toolbar); the document order stays the default. */
+    orderedPkgs(DATA.packages).forEach(function(p){
+      /* A collapsed lane renders its header and nothing else: the cards are not built at all, so a
+         collapsed board is genuinely cheaper, not merely hidden with CSS. The count above still counts
+         every visible package. */
+      if(collapsed)return;
+      if(effCol(p)!==c.k||!visible(p))return;
+      var card=document.createElement('div');card.className='card';card.draggable=true;card.dataset.id=p.id;
+      /* The card is the destination of "jump to this package" - the key reveal() looks a card up by. */
+      card.dataset.key='pkg:'+p.id;
+      /* Focusable so a lane move has a keyboard path as well as a drag one; the hint rides on the title
+         instead of a new toolbar. */
+      card.tabIndex=0;
+      card.title='可拖动；也可聚焦后按 Alt+← / Alt+→ 移动，Ctrl+Z 撤销上一步';
+      var html='<div class="pkg">'+esc(p.id)+'</div>';
+      html+='<div class="title">'+esc(p.content)+'</div>';
+      if(p.deps&&p.deps!=='\u2014')html+='<div class="deps">依赖：'+esc(p.deps)+'</div>';
+      html+='<div class="status">'+esc(p.status)+(p.pr?' - '+prHtml(p.pr):'')+'</div>';
+      if(p.reqs&&p.reqs.length){
+        html+='<div class="reqs">';
+        p.reqs.forEach(function(r){
+          html+='<div class="req"><span class="dot '+colOf(r.status)+'"></span><span><span class="rid">'+esc(r.id)+'</span> '+esc(r.title)+'</span></div>';
+        });
+        html+='</div>';
+      }
+      card.innerHTML=html;
+      card.addEventListener('keydown',function(e){
+        if(!e.altKey)return;
+        if(e.key==='ArrowLeft'){e.preventDefault();moveBy(p.id,-1);}
+        else if(e.key==='ArrowRight'){e.preventDefault();moveBy(p.id,1);}
+      });
+      card.addEventListener('dragstart',function(e){dragging=true;e.dataTransfer.setData('text/plain',p.id);card.classList.add('dragging');});
+      card.addEventListener('dragend',function(){
+        card.classList.remove('dragging');
+        dragging=false;
+        /* A sync that landed mid-drag was held back; apply it now that the card is released. */
+        if(pendingRender)render();
+      });
+      colEl.appendChild(card);
+    });
+    colEl.addEventListener('dragover',function(e){e.preventDefault();});
+    colEl.addEventListener('drop',function(e){
+      e.preventDefault();
+      var id=e.dataTransfer.getData('text/plain');
+      /* Recorded BEFORE the override is written: the history entry is where the card came from. */
+      recordMove(id,c.k);
+      overrides[id]=c.k;saveOverrides();
+      /* The move is the user's own action and has to land now: clear the drag flag first, or the guard
+         below would defer it to a dragend that this very rebuild is about to remove. */
+      dragging=false;
+      render();
+    });
+    board.appendChild(colEl);
+  });
+  /* The decisions list used to sit at the bottom of this page; it is its own tab now, which is what
+     turns the board into one view of a dimension instead of a page with everything stacked on it. */
+  document.getElementById('gen').textContent=DATA.generatedAt;
+  document.getElementById('meta').textContent='来源：'+DATA.sources.join(' - ');
+  /* The header's height is what the sticky table header pins below, and it changes with the meta line. */
+  measureHeader();
+}
+
+/* --- views (P0-11) ---
+   Each panel is a pure function of DATA: nothing here writes to a doc, and a missing source degrades to
+   an explanatory line instead of an error (CONTRIBUTING section 10, item 2). */
+function table(headers,rows,keys){
+  var out='<table class="grid"><thead><tr>';
+  headers.forEach(function(h){out+='<th>'+h+'</th>';});
+  out+='</tr></thead><tbody>';
+  rows.forEach(function(r,i){
+    /* The optional third argument puts a jump target on the row, so a number elsewhere on the board can
+       point AT this row instead of pointing at the panel and leaving the reader to search for it. */
+    var k=(keys&&keys[i])?(' data-key="'+esc(keys[i])+'"'):'';
+    out+='<tr'+k+'>';
+    r.forEach(function(c){out+='<td>'+c+'</td>';});
+    out+='</tr>';
+  });
+  return out+'</tbody></table>';
+}
+function kpiTile(k,v,tail,goto){
+  /* A summary tile is the natural place to click from, so the ones that stand for a panel jump to it - and
+     the tooltip says so BEFORE the click, not after. */
+  return '<div class="kpi"'+(goto?(' data-goto="'+esc(goto)+'" title="点击查看对应页签"'):'')
+    +'><div class="k">'+esc(k)+'</div><div class="v">'+esc(String(v))+(tail?(' <small>'+esc(tail)+'</small>'):'')+'</div></div>';
+}
+function allReqs(){
+  var out=[];
+  (DATA.packages||[]).forEach(function(p){(p.reqs||[]).forEach(function(r){out.push(r);});});
+  (DATA.unassigned||[]).forEach(function(r){out.push(r);});
+  return out;
+}
+/* A decision is "resolved" when its status carries the tick - the same reading rule as CONTRIBUTING 9.3,
+   so the count and the lane can never disagree. */
+function openDecisions(){
+  return (DATA.blockers||[]).filter(function(b){return String(b.status||'').indexOf('\u2705')<0;});
+}
+function renderKpis(){
+  var host=document.getElementById('kpis');if(!host)return;
+  var pkgs=DATA.packages||[], reqs=allReqs();
+  var pDone=pkgs.filter(function(p){return effCol(p)==='done';}).length;
+  var pClosed=pkgs.filter(function(p){return effCol(p)==='closed';}).length;
+  var rDone=reqs.filter(function(r){return colOf(r.status)==='done';}).length;
+  var open=openDecisions().length;
+  var out='';
+  /* Every tile whose number belongs to ONE panel carries that panel's jump target. 需求 is left plain on
+     purpose: requirements live inside the package cards, so no single panel owns that count and a jump
+     would have nowhere honest to land. */
+  out+=kpiTile('工作包', pDone+' / '+pkgs.length, pClosed?('+'+pClosed+' 已取消'):'', 'overview:');
+  out+=kpiTile('需求', rDone+' / '+reqs.length, '');
+  out+=kpiTile('待决事项', open, ((DATA.blockers||[]).length-open)+' 已决议', 'decisions:');
+  out+=kpiTile('未映射需求', (DATA.unassigned||[]).length, '', 'decisions:');
+  out+=kpiTile('时间线条目', (DATA.timeline||[]).length, '', 'timeline:');
+  out+=kpiTile('文档', (DATA.docmap||[]).length, '', 'docs:');
+  out+=kpiTile('可开工', readyPkgs().length, openPkgs().length+' 未完成', 'overview:');
+  out+=kpiTile('开放缺口', openGaps().length, scopeItems().length+' 条登记', 'scope:');
+  out+=kpiTile('阶段', (DATA.stages||[]).length, '', 'stages:');
+  host.innerHTML=out;
+}
+function renderStagesPanel(){
+  var host=document.getElementById('stage-rows');if(!host)return;
+  var pkgs=DATA.packages||[];
+  var rows=(DATA.stages||[]).map(function(s){
+    var mine=pkgs.filter(function(p){return p.stage===s.stage;});
+    var done=mine.filter(function(p){return effCol(p)==='done';}).length;
+    var pct=mine.length?Math.round(done*100/mine.length):0;
+    var bar='<span class="bar"><i style="width:'+pct+'%"></i></span>'+done+' / '+mine.length;
+    /* The plan column names a document that the document map also lists, so it is a way THERE. The
+       backticks and any docs/ prefix are stripped exactly the way planBaseline() does it - otherwise the
+       key would never match a row. */
+    var leaf=String(s.plan||'').replace(/`/g,'').trim().replace(/^docs\//,'');
+    var plan=leaf
+      ? ('<span data-goto="docs:doc:'+esc(leaf)+'" title="在「文档」页签定位这份计划">'+esc(s.plan)+'</span>')
+      : esc(s.plan);
+    return [esc(s.stage), plan, esc(s.status), esc(s.review), bar, esc(s.note)];
+  });
+  host.innerHTML=table(['阶段','计划文档','状态','收口评审','工作包','备注'],rows,
+    (DATA.stages||[]).map(function(s){return 'stage:'+s.stage;}));
+}
+var typeFilter='ALL';
+/* Split by TYPE, the way the source board splits batches from gates: rows whose type is 门禁 get their own
+   tab, everything else is the batch-and-incidental-fix list. Nothing is dropped - the type chips still
+   filter whatever is on screen - and the counts on the chips are the counts of THIS panel's rows. */
+function renderTimelinePanel(){
+  var host=document.getElementById('batch-rows');if(!host)return;
+  var rows=(DATA.timeline||[]).filter(function(t){return t.type!=='门禁';});
+  var list=rows.slice().reverse();
+  var chips=document.getElementById('typechips');
+  if(chips){
+    var types=[];
+    rows.forEach(function(t){if(types.indexOf(t.type)<0)types.push(t.type);});
+    var html='<button class="chip'+(typeFilter==='ALL'?' active':'')+'" data-type="ALL" type="button">全部（'+list.length+'）</button>';
+    types.forEach(function(t){
+      var n=rows.filter(function(x){return x.type===t;}).length;
+      html+='<button class="chip'+(typeFilter===t?' active':'')+'" data-type="'+esc(t)+'" type="button">'+esc(t)+' ('+n+')</button>';
+    });
+    chips.innerHTML=html;
+    Array.prototype.forEach.call(chips.querySelectorAll('.chip'),function(b){
+      b.addEventListener('click',function(){typeFilter=b.getAttribute('data-type');render();});
+    });
+  }
+  var shown=list.filter(function(t){return typeFilter==='ALL'||t.type===typeFilter;});
+  host.innerHTML=table(['日期','类型','包 / 阶段','PR','发生了什么'],
+    shown.map(function(t){return [esc(t.date),esc(t.type),esc(t.pkg),prHtml(t.pr),esc(t.content)];}));
+}
+function renderGatesPanel(){
+  var host=document.getElementById('gate-rows');if(!host)return;
+  var list=(DATA.timeline||[]).filter(function(t){return t.type==='门禁';}).slice().reverse();
+  host.innerHTML=list.length
+    ? table(['日期','包 / 阶段','PR','门禁记录'],list.map(function(t){return [esc(t.date),esc(t.pkg),prHtml(t.pr),esc(t.content)];}))
+    : '<div class="empty">本仓时间线里还没有「门禁」类型的条目。</div>';
+}
+function renderDecisions(){
+  var bc=document.getElementById('blockers');if(!bc)return;
+  var bh=bc.querySelector('h2');bc.innerHTML='';if(bh)bc.appendChild(bh);
+  var open=openDecisions();
+  if(open.length){
+    open.forEach(function(b){
+      var d=document.createElement('div');d.className='bcard';
+      d.innerHTML='<span class="bid">'+esc(b.id)+'</span> '+esc(b.question)+'<div class="blocks">阻塞：'+esc(b.blocks)+' - '+esc(b.status)+'</div>';
+      bc.appendChild(d);
+    });
+  }else{bc.innerHTML+='<div class="empty">无待决事项。</div>';}
+  if(DATA.unassigned&&DATA.unassigned.length){
+    var u=document.createElement('div');u.className='bcard unassigned';
+    u.innerHTML='<span class="bid muted">未分配</span> '+DATA.unassigned.length+' 条需求尚未映射到工作包：'+DATA.unassigned.map(function(r){return esc(r.id);}).join(', ');
+    bc.appendChild(u);
+  }
+}
+
+/* --- document drawer (P0-12) ---
+   A document name opens this drawer instead of navigating to the raw .md file (a browser renders that as
+   unstyled plain text). Three deliberate properties:
+   1. NO second copy of the docs. The text is fetched on demand from the same read-only endpoint the links
+      already point at (GET /docs/<name>) and cached for the session. Embedding ten documents would add
+      ~110 KB to the page - and, worse, to every /data poll, since the model is what the live sync compares.
+      Under file:// the browser refuses the fetch, so the drawer says exactly that and offers the raw file.
+   2. Escaping happens BEFORE any structure is applied (see mdInline). A document is rendered by the page,
+      and a document must never be able to inject markup into the board.
+   3. Same-origin by construction: only a single docs/*.md leaf name ever reaches the drawer, and every
+      other href in a document is shown as text rather than turned into a link that might 404. */
+var DOC_DIR='../docs/';
+var docCache={},curDoc=null,docOpener=null;
+function docBare(name){return String(name||'').replace(/^\.\.\//,'').replace(/^docs\//,'').replace(/\s*\(.*\)\s*$/,'');}
+function docUrl(name){return DOC_DIR+docBare(name);}
+function docLabel(name){
+  var hit=null;
+  (DATA.docmap||[]).forEach(function(d){if(d.name===name)hit=d;});
+  if(!hit)return name;
+  return (hit.num?('docs/'+hit.num+' - '):'docs/')+name;
+}
+function drawerOpen(){var d=document.getElementById('drawer');return !!(d&&d.classList.contains('open'));}
+function focusEl(id){var e=document.getElementById(id);if(e&&typeof e.focus==='function'){try{e.focus();}catch(x){}}}
+function openDoc(name,push){
+  name=docBare(name);
+  if(!name)return false;
+  if(curDoc===name&&drawerOpen())return true;      /* idempotent: the hash echo must not re-fetch */
+  curDoc=name;
+  var dr=document.getElementById('drawer');
+  if(dr){dr.classList.add('open');dr.setAttribute('aria-hidden','false');}
+  var mk=document.getElementById('dmask');if(mk)mk.classList.add('open');
+  document.getElementById('dtitle').textContent=docLabel(name);
+  document.getElementById('dpath').textContent='docs/'+name;
+  var op=document.getElementById('dopen');if(op)op.setAttribute('href',docUrl(name));
+  var body=document.getElementById('dbody');
+  if(docCache[name])body.innerHTML=docCache[name];
+  else{body.innerHTML='<div class="dstate">正在读取 docs/'+esc(name)+' …</div>';loadDoc(name);}
+  if(push!==false&&parseHash().doc!==name)location.hash=hashFor(activeTab,name);
+  focusEl('dclose');
+  return true;
+}
+function closeDoc(push){
+  if(!curDoc)return;
+  curDoc=null;
+  var dr=document.getElementById('drawer');
+  if(dr){dr.classList.remove('open');dr.setAttribute('aria-hidden','true');}
+  var mk=document.getElementById('dmask');if(mk)mk.classList.remove('open');
+  document.getElementById('dbody').innerHTML='';
+  /* Focus goes back where it came from: closing a dialog must not drop a keyboard reader at the top. */
+  if(docOpener&&typeof docOpener.focus==='function'){try{docOpener.focus();}catch(e){}}
+  docOpener=null;
+  if(push!==false&&parseHash().doc!=='')location.hash=activeTab;
+}
+function loadDoc(name){
+  if(typeof fetch!=='function'){docFailed(name,'当前环境不支持 fetch');return;}
+  fetch(docUrl(name)).then(function(r){
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.text();
+  }).then(function(txt){
+    var html='<div class="md">'+mdToHtml(txt)+'</div>';
+    docCache[name]=html;
+    if(curDoc===name)document.getElementById('dbody').innerHTML=html;
+  }).catch(function(e){docFailed(name,(e&&e.message)?e.message:'读取失败');});
+}
+/* The degraded path is spelled out rather than left blank: "the browser refused to read a local file" is a
+   fact the reader can act on, and the raw file is one click away. */
+function docFailed(name,why){
+  if(curDoc!==name)return;
+  document.getElementById('dbody').innerHTML='<div class="dstate">无法读取 <b>docs/'+esc(name)+'</b>：'+esc(why)+'。<br><br>'
+    +'以 <code>file://</code> 打开的静态快照无法读取相邻文件。请用 '
+    +'<code>tools/serve-kanban.ps1</code> 提供服务以便在抽屉里阅读文档，或使用上方的原始文件。</div>';
+}
+
+/* Markdown, without a dependency: the board is a single offline file, so no CDN and no parser library.
+   Covers what these documents actually use - ATX headings, fenced code, GFM tables, lists, quotes, rules,
+   inline code / bold / italic / links. Anything unrecognised stays a paragraph, which is the honest failure
+   mode: a slightly plainer reading, never a wrong one. */
+function mdIsSep(l){
+  var t=String(l).trim();
+  if(!/^[|\-:\s]+$/.test(t)||t.indexOf('-')<0)return false;
+  var cs=mdCells(t);
+  return cs.length>0&&cs.every(function(c){return /^:?-{2,}:?$/.test(c);});
+}
+function mdIsRow(l){return /^\s*\|/.test(String(l))&&/\|\s*$/.test(String(l));}
+function mdCells(row){
+  var s=String(row).trim().replace(/^\|/,'').replace(/\|$/,''),out=[],cur='';
+  for(var i=0;i<s.length;i++){
+    var ch=s.charAt(i);
+    if(ch==='\\'&&s.charAt(i+1)==='|'){cur+='|';i++;continue;}
+    if(ch==='|'){out.push(cur);cur='';continue;}
+    cur+=ch;
+  }
+  out.push(cur);
+  return out.map(function(c){return c.trim();});
+}
+function mdAlign(cells){
+  return cells.map(function(c){
+    if(!/^:?-{2,}:?$/.test(c))return '';
+    var l=c.charAt(0)===':',r=c.charAt(c.length-1)===':';
+    return (l&&r)?'center':(r?'right':(l?'left':''));
+  });
+}
+function mdInline(s){
+  var codes=[];
+  var t=esc(s).replace(/`([^`]+)`/g,function(_,c){codes.push('<code>'+c+'</code>');return '\u0000'+(codes.length-1)+'\u0000';});
+  t=t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,function(_,alt,src){return mdHref(alt||src,src,true);});
+  t=t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,function(_,txt,url){return mdHref(txt,url,false);});
+  t=t.replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>');
+  t=t.replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<i>$2</i>');
+  return t.replace(/\u0000(\d+)\u0000/g,function(_,i){return codes[+i];});
+}
+/* Only two kinds of link become links: an http(s) URL (external, new tab) and another document in this
+   repo (which opens in the drawer). Anything else - anchors, mailto, relative paths that are not docs -
+   stays text, because a link that 404s is worse than no link. */
+function mdHref(text,url,isImg){
+  var u=String(url||'');
+  if(/^https?:\/\//i.test(u))return isImg
+    ?('<img src="'+esc(u)+'" alt="'+esc(text)+'" loading="lazy">')
+    :('<a href="'+esc(u)+'" target="_blank" rel="noopener">'+text+'</a>');
+  if(isImg)return '<span class="dim">[image: '+text+']</span>';
+  if(/\.md$/i.test(docBare(u))){var n=docBare(u);return '<a href="'+esc(docUrl(n))+'" data-doc="'+esc(n)+'" title="在抽屉中打开">'+text+'</a>';}
+  if(/^#/.test(u))return '<span title="anchor inside the document">'+text+'</span>';
+  return '<span class="dim" title="'+esc(u)+'">'+text+'</span>';
+}
+function mdToHtml(src){
+  var lines=String(src===null||src===undefined?'':src).replace(/\r\n?/g,'\n').split('\n');
+  var out=[],i=0;
+  function endsBlock(l,j){
+    if(/^\s*$/.test(l))return true;
+    if(/^\s*```/.test(l))return true;
+    if(/^#{1,6}\s/.test(l))return true;
+    if(/^\s*>/.test(l))return true;
+    if(/^\s*([-*+]|\d+[.)])\s+/.test(l))return true;
+    if(mdIsRow(l)&&j+1<lines.length&&mdIsSep(lines[j+1]))return true;
+    return false;
+  }
+  while(i<lines.length){
+    var ln=lines[i];
+    if(/^\s*$/.test(ln)){i++;continue;}
+    if(/^\s*```/.test(ln)){
+      var lang=ln.replace(/^\s*```/,'').trim(),buf=[];
+      i++;
+      while(i<lines.length&&!/^\s*```/.test(lines[i])){buf.push(lines[i]);i++;}
+      i++;
+      out.push('<pre><code'+(lang?(' data-lang="'+esc(lang)+'"'):'')+'>'+esc(buf.join('\n'))+'</code></pre>');
+      continue;
+    }
+    var h=/^(#{1,6})\s+(.*)$/.exec(ln);
+    if(h){var lv=h[1].length;out.push('<h'+lv+'>'+mdInline(h[2].replace(/\s+#+\s*$/,''))+'</h'+lv+'>');i++;continue;}
+    if(/^\s*([-*_])(\s*\1){2,}\s*$/.test(ln)){out.push('<hr>');i++;continue;}
+    if(mdIsRow(ln)&&i+1<lines.length&&mdIsSep(lines[i+1])){
+      var head=mdCells(ln),al=mdAlign(mdCells(lines[i+1]));i+=2;
+      var rows=[];
+      while(i<lines.length&&mdIsRow(lines[i])){rows.push(mdCells(lines[i]));i++;}
+      var cell=function(c,j,tag){
+        var v=(c===undefined?'':c);
+        return '<'+tag+(al[j]?(' style="text-align:'+al[j]+'"'):'')+'>'+mdInline(v)+'</'+tag+'>';
+      };
+      out.push('<table><thead><tr>'+head.map(function(c,j){return cell(c,j,'th');}).join('')+'</tr></thead><tbody>'
+        +rows.map(function(r){return '<tr>'+head.map(function(_,j){return cell(r[j],j,'td');}).join('')+'</tr>';}).join('')
+        +'</tbody></table>');
+      continue;
+    }
+    if(/^\s*>/.test(ln)){
+      var q=[];
+      while(i<lines.length&&/^\s*>/.test(lines[i])){q.push(lines[i].replace(/^\s*>\s?/,''));i++;}
+      out.push('<blockquote>'+mdToHtml(q.join('\n'))+'</blockquote>');
+      continue;
+    }
+    if(/^\s*([-*+]|\d+[.)])\s+/.test(ln)){
+      /* Indent decides nesting: two spaces per level, which is how these documents are written. */
+      var stack=[],html='';
+      while(i<lines.length&&/^\s*([-*+]|\d+[.)])\s+/.test(lines[i])){
+        var ind=lines[i].match(/^\s*/)[0].replace(/\t/g,'  ').length;
+        var m=lines[i].match(/^\s*([-*+]|\d+[.)])\s+/);
+        var ordered=/\d/.test(m[1]);
+        var lvl=Math.floor(ind/2);
+        while(stack.length<=lvl){html+=(ordered?'<ol>':'<ul>');stack.push(ordered);}
+        while(stack.length>lvl+1){html+=(stack.pop()?'</ol>':'</ul>');}
+        if(stack.length===lvl+1&&stack[lvl]!==ordered){html+=(stack.pop()?'</ol>':'</ul>');stack.push(ordered);html+=(ordered?'<ol>':'<ul>');}
+        html+='<li>'+mdInline(lines[i].slice(m[0].length))+'</li>';
+        i++;
+      }
+      while(stack.length){html+=(stack.pop()?'</ol>':'</ul>');}
+      out.push(html);
+      continue;
+    }
+    var p=[];
+    while(i<lines.length&&!endsBlock(lines[i],i)){p.push(lines[i]);i++;}
+    out.push('<p>'+mdInline(p.join('\n')).replace(/\n/g,'<br>')+'</p>');
+  }
+  return out.join('\n');
+}
+
+/* The document map: what documentation exists, of which kind, and when it last changed in the repository.
+   The name opens the drawer; ctrl / command / middle click still opens the raw file. */
+function renderDocMap(){
+  var host=document.getElementById('docmap');if(!host)return;
+  var kindLabel={standing:'常驻',numbered:'编号',design:'专项'};
+  var rows=(DATA.docmap||[]).map(function(d){
+    var label=(d.num?('docs/'+d.num+' - '):'docs/')+esc(d.name);
+    var link='<a href="'+esc(docUrl(d.name))+'" data-doc="'+esc(d.name)+'" title="在抽屉中打开（Ctrl/Command 点击或中键：新标签页打开原始文件）">'+label+'</a>';
+    var title=esc(d.title)+' <span class="dim">('+d.lines+' 行 / '+d.bytes+' 字节)</span>';
+    return [link, title, esc(kindLabel[d.kind]||d.kind), esc(d.first||'-'), esc(d.last||'-')];
+  });
+  host.innerHTML=table(['文件','标题','类别','首次出现','最近改动'],rows,
+    (DATA.docmap||[]).map(function(d){return 'doc:'+d.name;}));
+}
+
+/* --- health and next (P0-13) ---
+   Two views that only exist because the other sources exist: the health panel cross-checks facts that live in
+   MORE THAN ONE document (exactly what R-Plan-6 is about), and the next panel answers "what can start now" -
+   which is derivable only from the dependency column together with each package's state. */
+var STALE_DAYS=7;   /* a document this many days behind the active stage plan is flagged */
+function doneIds(){var o={};(DATA.packages||[]).forEach(function(p){if(effCol(p)==='done')o[p.id]=true;});return o;}
+function pkgIdsIn(cell){var out=[],re=/P\d+-\d+/g,m;while((m=re.exec(String(cell||'')))){if(out.indexOf(m[0])<0)out.push(m[0]);}return out;}
+function openPkgs(){return (DATA.packages||[]).filter(function(p){return effCol(p)!=='done'&&effCol(p)!=='closed';});}
+function readyPkgs(){var done=doneIds();return openPkgs().filter(function(p){if(effCol(p)!=='backlog')return false;return pkgIdsIn(p.deps).every(function(d){return done[d];});});}
+function blockingDeps(p){var done=doneIds();return pkgIdsIn(p.deps).filter(function(d){return !done[d];});}
+function activeStage(){var s=(DATA.stages||[]).filter(function(x){return String(x.status||'').indexOf('\uD83D\uDD04')>=0;});return s.length?s[0]:((DATA.stages||[])[0]||null);}
+function planBaseline(){
+  var s=activeStage();if(!s)return null;
+  var leaf=String(s.plan||'').replace(/`/g,'').trim();
+  var hit=null;(DATA.docmap||[]).forEach(function(d){if(d.name===leaf)hit=d;});
+  return hit?{stage:s.stage,doc:hit}:null;
+}
+function gapDays(from,to){
+  var a=Date.parse(String(from)+'T00:00:00Z'),b=Date.parse(String(to)+'T00:00:00Z');
+  if(isNaN(a)||isNaN(b))return null;
+  return Math.round((b-a)/86400000);
+}
+function staleDocs(){
+  var base=planBaseline();
+  if(!base||!base.doc.last)return [];
+  var out=[];
+  (DATA.docmap||[]).forEach(function(d){
+    if(!d.last||d.name===base.doc.name)return;
+    var g=gapDays(d.last,base.doc.last);
+    if(g===null||g<STALE_DAYS)return;
+    out.push({doc:d,days:g});
+  });
+  return out;
+}
+function checkLine(state,text){return '<li><span class="dot '+state+'"></span><span>'+text+'</span></li>';}
+function renderHealthPanel(){
+  var host=document.getElementById('health-checks');if(!host)return;
+  var pkgs=DATA.packages||[];
+  var out='';
+  (DATA.stages||[]).forEach(function(s){
+    var mine=pkgs.filter(function(p){return p.stage===s.stage;});
+    var done=mine.filter(function(p){return effCol(p)==='done';}).length;
+    var stageDone=String(s.status||'').indexOf('\u2705')>=0;
+    if(mine.length&&done===mine.length&&!stageDone){
+      out+=checkLine('progress', esc(s.stage)+'：'+mine.length+' 个工作包都已完成，但阶段仍写着 '+esc(s.status)+' —— 可以安排收口评审了');
+    }else if(stageDone&&done<mine.length){
+      out+=checkLine('blocked', esc(s.stage)+' 写着 '+esc(s.status)+'，但仍有 '+(mine.length-done)+' 个工作包未完成');
+    }else{
+      out+=checkLine('done', esc(s.stage)+'：'+done+' / '+mine.length+' 个工作包已完成，阶段 '+esc(s.status));
+    }
+  });
+  /* A dependency on a package that does not exist is a plan defect that no gate currently catches. */
+  var known={};pkgs.forEach(function(p){known[p.id]=true;});
+  var ghost=[];
+  pkgs.forEach(function(p){pkgIdsIn(p.deps).forEach(function(d){if(!known[d])ghost.push(p.id+' -> '+d);});});
+  out+=ghost.length
+    ? checkLine('blocked','依赖指向计划中不存在的工作包：'+esc(ghost.join(', ')))
+    : checkLine('done','所有声明的依赖都指向计划中存在的工作包');
+  var free=openPkgs().filter(function(p){return pkgIdsIn(p.deps).length===0;});
+  out+=checkLine('done', free.length+' 个未完成工作包未声明包依赖（计划共 '+pkgs.length+' 个）');
+  host.innerHTML=out;
+
+  var fresh=document.getElementById('freshness');if(!fresh)return;
+  var base=planBaseline(), stale=staleDocs(), f='';
+  if(!base){
+    f+='<div class="empty">当前没有进行中的阶段，因此没有可用来比对文档的计划。</div>';
+  }else{
+    f+='<div class="kv">基准：'+esc(base.doc.name)+'（'+esc(base.stage)+' 阶段计划），最近改动 '+esc(base.doc.last||'未知')+'。落后它超过 '+STALE_DAYS+' 天的文档会被标记。</div>';
+    if(stale.length){
+      f+='<div class="tbl-wrap"><table class="grid"><thead><tr><th>文档</th><th>最近改动</th><th>落后天数</th></tr></thead><tbody>';
+      stale.forEach(function(x){f+='<tr><td>'+esc(x.doc.name)+'</td><td>'+esc(x.doc.last)+'</td><td>'+x.days+'</td></tr>';});
+      f+='</tbody></table></div>';
+      f+='<ul class="checks">'+checkLine('progress', stale.length+' 份文档落后阶段计划超过 '+STALE_DAYS+' 天')+'</ul>';
+    }else{
+      f+='<ul class="checks">'+checkLine('done','所有文档都在阶段计划的 '+STALE_DAYS+' 天之内')+'</ul>';
+    }
+    f+='<div class="kv">刻意不覆盖：跨文档引用是否可解析（由治理 docrefs 检查负责），以及记录的门禁数字是否仍与 git 一致。</div>';
+  }
+  fresh.innerHTML=f;
+}
+function depCell(p){
+  var ids=pkgIdsIn(p.deps), wait=blockingDeps(p);
+  if(!ids.length)return '<span class="dim">无</span>';
+  if(!wait.length)return '<span class="dim">已满足：'+esc(ids.join(', '))+'</span>';
+  return '<span class="dim">等待：'+esc(wait.join(', '))+'</span>';
+}
+function renderNextPanel(){
+  var host=document.getElementById('next-body');if(!host)return;
+  var ns=DATA.nextstep;
+  var out='<div class="section"><h2>下一步'+(ns&&ns.doc?('（来自 <span data-goto="docs:doc:'+esc(ns.doc)+'" title="在「文档」页签定位这份计划">'+esc(ns.doc)+'</span>）'):'')+'</h2>';
+  if(ns&&ns.heading){
+    out+='<p>'+mdInline(ns.heading)+'</p>';
+    if(ns.bullets&&ns.bullets.length){
+      out+='<ul>';
+      ns.bullets.forEach(function(b){out+='<li>'+mdInline(b)+'</li>';});
+      out+='</ul>';
+    }
+  }else{
+    out+='<div class="empty">阶段计划没有记录下一步（其 §4 未找到标题）。</div>';
+  }
+  out+='</div>';
+
+  var ready=readyPkgs();
+  var prog=openPkgs().filter(function(p){return effCol(p)==='progress';});
+  var rest=openPkgs().filter(function(p){return effCol(p)!=='progress';});
+  out+='<div class="section"><h2>可开工（'+ready.length+'）</h2>';
+  if(ready.length){
+    out+='<div class="tbl-wrap"><table class="grid"><thead><tr><th>工作包</th><th>内容</th><th>阶段</th><th>依赖</th></tr></thead><tbody>';
+    /* The package id and the stage are both references to another dimension, so both are ways there. */
+    ready.forEach(function(p){
+      out+='<tr><td><b data-goto="overview:pkg:'+esc(p.id)+'" title="在「工作包」页签定位该卡片">'+esc(p.id)+'</b></td>'
+        +'<td>'+esc(p.content)+'</td>'
+        +'<td data-goto="stages:stage:'+esc(p.stage)+'" title="在「阶段」页签定位该阶段">'+esc(p.stage)+'</td>'
+        +'<td>'+depCell(p)+'</td></tr>';
+    });
+    out+='</tbody></table></div>';
+  }else{
+    out+='<div class="empty">没有已解锁的工作包：每个未完成包都在等待另一个包。</div>';
+  }
+  out+='</div>';
+
+  out+='<div class="section"><h2>进行中（'+prog.length+'）/ 未开始（'+rest.length+'）</h2>';
+  out+='<div class="tbl-wrap"><table class="grid"><thead><tr><th>工作包</th><th>状态</th><th>内容</th><th>依赖</th></tr></thead><tbody>';
+  prog.concat(rest).forEach(function(p){
+    out+='<tr><td><b data-goto="overview:pkg:'+esc(p.id)+'" title="在「工作包」页签定位该卡片">'+esc(p.id)+'</b></td>'
+      +'<td>'+esc(p.status)+'</td><td>'+esc(p.content)+'</td><td>'+depCell(p)+'</td></tr>';
+  });
+  if(!prog.length&&!rest.length)out+='<tr><td colspan="4">所有工作包均已完成或取消。</td></tr>';
+  out+='</tbody></table></div></div>';
+  host.innerHTML=out;
+
+  var owe=document.getElementById('outstanding');if(!owe)return;
+  var d=openDecisions().length;
+  var un=(DATA.unassigned||[]).length;
+  var pend=(DATA.timeline||[]).filter(function(t){return String(t.pr||'').indexOf('\u5F85\u63D0')>=0;}).length;
+  var stale=staleDocs().length;
+  var gaps=openGaps().length;
+  var o='';
+  o+=checkLine(d?'progress':'done', d+' 条待决事项记录在阶段计划（§8）');
+  o+=checkLine(un?'progress':'done', un+' 条需求尚未映射到工作包');
+  o+=checkLine(pend?'progress':'done', pend+' 条时间线仍显示待提 PR 号');
+  o+=checkLine(stale?'progress':'done', stale+' 份文档被新鲜度检查标记');
+  o+=checkLine(gaps?'progress':'done', gaps+' 个开放缺口记录在范围边界清单（见"范围"页签）');
+  owe.innerHTML=o;
+}
+
+/* --- scope and quadrants (P0-14) ---
+   The boundary list is the project's candidate pool (R-Plan-7), so the board SHOWS it instead of restating
+   it. Two details are deliberate:
+   1. the gap status is read by CODE POINT (green / blue circle, cross, square) - the same discipline as the
+      package states, and the reason this panel does not need its own colour scale;
+   2. the contract-level red lines get their own row next to Q1-Q4 rather than being folded into them: they
+      are "not allowed", not "not important", and a board that merged the two would turn a red line into a
+      backlog item. */
+function gapCol(s){
+  var t=String(s||'');
+  if(t.indexOf('\uD83D\uDFE2')>=0)return 'done';        /* green circle  - implemented */
+  if(t.indexOf('\uD83D\uDD35')>=0)return 'progress';    /* blue circle   - triggered */
+  if(t.indexOf('\u274C')>=0)return 'closed';            /* cross mark    - closed on purpose */
+  return 'backlog';                                     /* empty square  - open */
+}
+function scopeItems(){return (DATA.scope&&DATA.scope.items)||[];}
+function openGaps(){return scopeItems().filter(function(g){var c=gapCol(g.status);return c==='backlog'||c==='progress';});}
+function renderScopePanel(){
+  var sc=DATA.scope, all=scopeItems();
+  var host=document.getElementById('quadrants');
+  if(host){
+    var qrows=((sc&&sc.quadrants)||[]).map(function(q){
+      /* The ids are jump targets, the same way the source board does it: the quadrant says WHERE an item
+         stands, the registered table below says what it is - so the chip goes there instead of leaving the
+         reader to match numbers by eye. */
+      var ids=q.ids.length
+        ? ('<span class="qids">'+q.ids.map(function(i){return '<span class="qid" data-goto="scope:scope:'+esc(i)+'" title="在下方登记表定位该条目">'+esc(i)+'</span>';}).join('')+'</span>')
+        : '无';
+      return [esc(q.label), String(q.ids.length), ids];
+    });
+    host.innerHTML=qrows.length
+      ? table(['象限','数量','条目'],qrows)
+      : '<div class="empty">范围边界清单里没有找到象限表。</div>';
+  }
+  var cnt=document.getElementById('scopecounts');
+  if(cnt){
+    var byState={backlog:0,progress:0,done:0,closed:0};
+    all.forEach(function(g){byState[gapCol(g.status)]++;});
+    cnt.textContent=(sc&&sc.doc?sc.doc+' - ':'')+all.length+' 条登记 = '+byState.backlog+' 开放、'+byState.progress+' 已触发、'+byState.done+' 已实现、'+byState.closed+' 主动关闭';
+  }
+  var items=document.getElementById('scope-rows');
+  if(items){
+    var rows=all.map(function(g){
+      return [esc(g.id), esc(g.kind), mdInline(g.desc), mdInline(g.trigger), esc(g.owner),
+              '<span class="dot '+gapCol(g.status)+'"></span> '+esc(g.status)];
+    });
+    items.innerHTML=rows.length
+      ? table(['编号','类别','内容','触发条件','归属','状态'],rows,all.map(function(g){return 'scope:'+g.id;}))
+      : '<div class="empty">未找到范围边界清单。</div>';
+  }
+  var closedHost=document.getElementById('closed');
+  if(closedHost){
+    var crows=((sc&&sc.closed)||[]).map(function(c){return [esc(c.id), esc(c.date), esc(c.way), mdInline(c.basis)];});
+    closedHost.innerHTML=crows.length
+      ? table(['编号','关闭日期','方式','依据'],crows)
+      : '<div class="empty">暂无归档。</div>';
+  }
+}
+
+// --- live auto-sync (no page reload) ---
+// When the page is served over http(s) by tools/serve-kanban.ps1, poll /data every 2s and
+// re-render in place when the docs have changed. On file:// the board is a static snapshot.
+/* The poll compares CONTENT, never the whole payload: the model carries generatedAt, which is re-stamped
+   on every parse, so comparing the raw JSON made every 2s tick look like a change and rebuilt the whole
+   page - which is what threw the reader back to the top of the list they were scrolling. */
+function contentKey(m){
+  var c={};
+  Object.keys(m||{}).forEach(function(k){ if(k!=='generatedAt')c[k]=m[k]; });
+  return JSON.stringify(c);
+}
+var lastJson = contentKey(DATA);
+function setLive(ok){
+  var el=document.getElementById('live');
+  if(!el)return;
+  el.style.opacity = ok ? '1' : '0.4';
+  el.title = ok ? '实时：已从文档自动同步' : '实时：正在重连…';
+}
+function syncNow(){
+  if(!/^https?:$/.test(location.protocol))return;
+  fetch('data?t='+Date.now()).then(function(r){ if(!r.ok) throw new Error('http '+r.status); return r.json(); })
+    .then(function(d){
+      if(!d||d.error)return;
+      var s=contentKey(d);
+      /* A content change is re-rendered in place, and the banner says what moved: a silent swap is how a
+         reader ends up quoting a line that is no longer there. */
+      if(s!==lastJson){ var before=DATA; lastJson=s; DATA=d; render(); showChanged(modelDiff(before,d)); }
+      setLive(true);
+    }).catch(function(){ setLive(false); });
+}
+function startLive(){
+  if(!/^https?:$/.test(location.protocol))return;
+  var live=document.getElementById('live'); if(live) live.style.display='inline-block';
+  syncNow();
+  setInterval(syncNow, 2000);
+}
+
+// --- theme (light / dark) ---
+// The initial value is already applied by the bootstrap script in <head>; here we only keep the
+// toggle button honest and persist an explicit user choice.
+var THEME_KEY='{{APP_KEY}}_kanban_theme';
+function themeNow(){return document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';}
+function storedTheme(){try{var s=localStorage.getItem(THEME_KEY);return (s==='dark'||s==='light')?s:null;}catch(e){return null;}}
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  var b=document.getElementById('theme');if(!b)return;
+  // The sun / moon glyph is switched by CSS alone (see the .icon-btn rules); JS only keeps the
+  // tooltip and the accessible label in sync with the theme the button would switch to.
+  var label='切换到'+((t==='dark')?'浅色':'暗色')+'主题';
+  b.title=label;
+  b.setAttribute('aria-label',label);
+}
+document.getElementById('theme').addEventListener('click',function(){
+  var t=(themeNow()==='dark')?'light':'dark';
+  applyTheme(t);
+  try{localStorage.setItem(THEME_KEY,t);}catch(e){}
+});
+// Follow the OS only while the user has not pinned a theme of their own.
+if(window.matchMedia){
+  var mq=window.matchMedia('(prefers-color-scheme: dark)');
+  var onSystemTheme=function(e){if(!storedTheme())applyTheme(e.matches?'dark':'light');};
+  if(mq.addEventListener)mq.addEventListener('change',onSystemTheme);
+  else if(mq.addListener)mq.addListener(onSystemTheme);
+}
+applyTheme(themeNow());
+
+/* --- tabs, and the document in the URL (P0-11 / P0-12) ---
+   Tabs only toggle visibility: every panel is already rendered, so switching is instant. The hash carries
+   "dimension" or "dimension~document", which is what makes a view - or a single document - linkable and
+   Back / Forward work. */
+var TAB_NAMES=['overview','next','stages','scope','docs','timeline','gates','decisions','health'];
+var activeTab='overview';
+function parseHash(){
+  var h=location.hash.replace(/^#/,'');
+  try{h=decodeURIComponent(h);}catch(e){}
+  var i=h.indexOf('~');
+  return {tab:(i<0?h:h.slice(0,i)),doc:(i<0?'':h.slice(i+1))};
+}
+function hashFor(tab,doc){return doc?(tab+'~'+doc):tab;}
+function selectTab(name,push){
+  var prev=activeTab;
+  activeTab=(TAB_NAMES.indexOf(name)>=0)?name:'overview';
+  /* Moving to another dimension closes the open document: it belongs to the tab it was opened from, and a
+     document left on screen while the board behind it changes is how a reader cites the wrong page. */
+  if(curDoc&&prev!==activeTab)closeDoc(false);
+  TAB_NAMES.forEach(function(t){
+    var p=document.getElementById('p-'+t);
+    if(!p)return;
+    if(t===activeTab)p.classList.remove('hidden');else p.classList.add('hidden');
+  });
+  var tools=document.getElementById('boardtools');
+  if(tools){if(activeTab==='overview')tools.classList.remove('hidden');else tools.classList.add('hidden');}
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){
+    var on=b.getAttribute('data-tab')===activeTab;
+    if(on)b.classList.add('active');else b.classList.remove('active');
+    b.setAttribute('aria-selected',on?'true':'false');
+  });
+  /* Switching dimension starts at the TOP of the new view. The tab name is also the URL hash, so any element
+     carrying that id made this a fragment jump - the colliding hosts were renamed away (P0-21) and
+     tools/kanban-check.ps1 now fails if one comes back - but a PRESERVED scroll offset would still land the
+     reader in the middle of a panel they have not read yet, which is the same complaint. */
+  if(push!==false&&document.scrollingElement){try{document.scrollingElement.scrollTop=0;}catch(e){}}
+  if(push!==false&&parseHash().tab!==activeTab)location.hash=hashFor(activeTab,curDoc);
+}
+Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(b){
+  b.addEventListener('click',function(){selectTab(b.getAttribute('data-tab'));});
+});
+window.addEventListener('hashchange',function(){
+  var p=parseHash();
+  selectTab(p.tab||'overview',false);
+  if(p.doc)openDoc(p.doc,false);
+  else if(curDoc)closeDoc(false);
+});
+/* A document name (in the document map, or inside another document) opens the drawer. Only a plain left
+   click is intercepted: ctrl / command / shift and middle click keep the browser's own behaviour - the raw
+   file in a new tab - so the escape hatch is never taken away, and it still works with no JS at all. */
+document.addEventListener('click',function(e){
+  var t=e.target;
+  /* The notice bar's own controls are buttons, not links, so they are handled first - the walk below would
+     otherwise have to guess what they are. */
+  if(t&&t.getAttribute){
+    var act=t.getAttribute('data-act');
+    if(act==='undo'){undoMove();return;}
+    if(act==='clear-ov'){clearOverrides();return;}
+    if(act==='clear-stale'){clearDropped();return;}
+  }
+  while(t&&t!==document.body){
+    if(t.getAttribute){
+      var n=t.getAttribute('data-doc');
+      if(n){
+        if(!(e.metaKey||e.ctrlKey||e.shiftKey||e.button>0)){
+          if(e.preventDefault)e.preventDefault();
+          docOpener=t;
+          openDoc(n);
+        }
+        return;
+      }
+      /* A reference to a row that lives in another dimension: switch to the panel that owns it and pulse
+         the row, instead of leaving the reader to hunt for the number they just clicked. */
+      var go=t.getAttribute('data-goto');
+      if(go){
+        var g=normalizeGoto(go);
+        reveal(g.tab,g.key);
+        return;
+      }
+    }
+    t=t.parentNode;
+  }
+});
+document.getElementById('dmask').addEventListener('click',function(){closeDoc();});
+document.getElementById('dclose').addEventListener('click',function(){closeDoc();});
+/* The drawer is the topmost layer, so it consumes Esc: closing the overlay is what a reader expects. */
+document.addEventListener('keydown',function(e){
+  if((e.key==='Escape'||e.keyCode===27)&&curDoc){closeDoc();return;}
+  /* Ctrl / Command + Z is the way back from a mis-drop. Skipped while typing, so it keeps undoing text
+     in the filter box instead of silently rearranging the board behind it. */
+  var tag=(e.target&&e.target.tagName)||'';
+  if(tag==='INPUT'||tag==='TEXTAREA')return;
+  if((e.key==='z'||e.key==='Z'||e.keyCode===90)&&(e.ctrlKey||e.metaKey)&&!e.altKey){e.preventDefault();undoMove();}
+});
+
+var searchBox=document.getElementById('search');
+if(searchBox){searchBox.value=search;searchBox.addEventListener('input',function(e){setSearch(e.target.value);});}
+function setSearch(v){search=v||'';setPref('search',search);renderEverything();}
+/* The toolbar's tools write straight into the preferences blob, so a reader who filters by stage, picks
+   a sort order and hides empty lanes gets that view back on the next visit. The reset button sits next
+   to them but clears the hand-moves, not the view. */
+var stageSel=document.getElementById('stagefilter');
+if(stageSel){
+  stageSel.addEventListener('change',function(e){stageFilter=e.target.value||'ALL';setPref('stage',stageFilter==='ALL'?'':stageFilter);render();});
+}
+var optEmpty=document.getElementById('opt-empty');
+if(optEmpty){
+  optEmpty.checked=hideEmpty;
+  optEmpty.addEventListener('change',function(e){hideEmpty=e.target.checked;setPref('hideempty',hideEmpty?'1':'');render();});
+}
+var optSort=document.getElementById('opt-sort');
+if(optSort){
+  optSort.value=sortMode;
+  optSort.addEventListener('change',function(e){sortMode=e.target.value||'doc';setPref('sort',sortMode==='doc'?'':sortMode);render();});
+}
+document.getElementById('reset').addEventListener('click',function(){
+  /* Resetting clears the history with the overrides: an undo after the reset would otherwise resurrect
+     the very move the reader just threw away. */
+  try{localStorage.removeItem('{{APP_KEY}}_kanban_overrides');}catch(e){}
+  overrides={};moveStack=[];showChanged([]);render();
+});
+document.getElementById('sync').addEventListener('click',syncNow);
+render();
+/* The pin offset is measured once here and on every resize: the header grows with the meta line and
+   wraps at narrow widths, so a hard-coded number would be wrong on the machine that matters. */
+measureHeader();
+window.addEventListener('resize',measureHeader);
+/* The opening view comes from the URL hash - "dimension" or "dimension~document" - so a dimension, or a
+   single document, is shareable and Back / Forward work. */
+var boot=parseHash();
+selectTab(boot.tab||'overview',false);
+if(boot.doc)openDoc(boot.doc,false);
+startLive();
+</script>
+</body>
+</html>

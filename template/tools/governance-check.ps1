@@ -1,0 +1,361 @@
+<#
+Governance line for {{PROJECT_NAME}} - the "specs & docs" gate.
+
+Why this exists
+---------------
+A repository with a code-only gate has exactly one blind spot: docs, rules and specs are the
+ONLY assets with no check at all. Stale references and "ghost package ids" then can only be
+found by hand, and structurally never by a gate. This script IS that gate. It is read-only:
+it never edits anything.
+
+Three checks
+------------
+  1. commitmsg  commit subjects of THIS change must start with a package prefix `[Px-y]`
+                (CONTRIBUTING.md section 3). Historic subjects often do not comply (early
+                prototype commits, stage-level `[P9]`, `style:`/`docs:` conventional commits),
+                therefore the default scope is the CHANGED RANGE ONLY - never the whole
+                history. Scanning history would be red forever and useless.
+  2. docrefs    relative references inside the governance docs must resolve to real files.
+                Only path-like tokens are checked: Markdown link targets (link syntax written
+                INSIDE inline code is prose about links, not a reference - stripped before
+                matching), inline code containing '/' plus a known extension, and bare
+                `docs/NN` / `docs/NN/MM` shorthand (resolved as docs/NN-*.md). The token rules
+                are deliberately narrow: a broad first cut produced mostly checker bugs
+                (zero-padding) rather than real rot. Still warn-only by default.
+  3. registry   package ids used by commits must be registered in the governance docs - catches
+                "ghost packages" (an id that exists as a branch and a commit prefix before it
+                is registered anywhere). Default scope is the changed range (same as commitmsg);
+                use -RegistryAll for a full-history audit, which will surface known historical
+                leftovers.
+
+Strictness
+----------
+Findings are warnings by default. `-Strict all` (or a comma list of check names) makes the
+selected checks exit 1. Roll out per check: measure first, promote later. This mirrors the
+fail-open gating philosophy of .github/workflows/verify-clean-build.yml.
+
+"Cannot judge" is never a failure: an unresolvable git range, a missing git or a missing
+documentation folder is reported as a notice and skipped.
+
+Usage
+-----
+  powershell -ExecutionPolicy Bypass -File tools/governance-check.ps1
+  powershell -ExecutionPolicy Bypass -File tools/governance-check.ps1 -Range origin/develop...HEAD
+  powershell -ExecutionPolicy Bypass -File tools/governance-check.ps1 -Range <before>..<after> -Strict registry
+  powershell -ExecutionPolicy Bypass -File tools/governance-check.ps1 -RegistryAll -Strict all
+
+NOTE: kept ASCII-only on purpose (Windows PowerShell 5.1 reads BOM-less UTF-8 as ANSI, so a
+non-ASCII byte inside a script can garble output or even break parsing).
+#>
+param(
+    # Git range for the commit-message and registry checks, e.g. "origin/develop...HEAD" or
+    # "<before>..<after>". Empty (default) means "only the tip commit" - the useful local default.
+    [string]$Range = '',
+    # Which checks fail the build on findings: 'all' or a comma list of commitmsg,docrefs,registry.
+    [string]$Strict = '',
+    # Registry only: scan the whole history instead of just the changed range (audit mode).
+    [switch]$RegistryAll,
+    # Draft a per-package table straight from git for a stage prefix (e.g. 'P12'), so the project
+    # timeline's mechanical columns (date / package / PR) stop being copied by hand.
+    # Only those columns are derived - the summary column stays human-written on purpose.
+    [string]$Timeline = '',
+    # Repository root; defaults to the parent folder of this script.
+    [string]$RepoRoot = '',
+    # Maximum findings printed per check (the rest is summarised).
+    [int]$MaxPrinted = 40
+)
+
+$ErrorActionPreference = 'Continue'
+
+if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path) }
+$RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
+$docsDir = Join-Path $RepoRoot 'docs'
+
+$strictSet = @{}
+foreach ($name in ($Strict -split ',' | ForEach-Object { $_.Trim().ToLower() })) {
+    if ($name) { $strictSet[$name] = $true }
+}
+if ($strictSet['all']) { $strictSet['commitmsg'] = $true; $strictSet['docrefs'] = $true; $strictSet['registry'] = $true }
+
+function Write-Finding {
+    param([string]$Check, [string]$Where, [string]$Message)
+    # GitHub annotation (also readable in a plain console).
+    Write-Host "::warning title=governance/$Check::$Where : $Message"
+}
+function Write-Notice {
+    param([string]$Check, [string]$Message)
+    Write-Host "::notice title=governance/$Check::$Message"
+}
+function Invoke-Git {
+    param([string[]]$GitArgs)
+    $out = & git -C $RepoRoot @GitArgs 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return @($out)
+}
+function Test-GitRange {
+    # A range (a..b, a...b) is NOT a revision: `rev-parse --verify` rejects it. Ask rev-list instead.
+    param([string]$RevRange)
+    & git -C $RepoRoot rev-list --max-count=1 $RevRange 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+$gitOk = ($null -ne (Invoke-Git @('rev-parse', '--git-dir')))
+if (-not $gitOk) { Write-Notice 'git' 'not a git work tree -> commit-message and registry checks skipped' }
+
+$failed = @()
+$rangeUsable = $false
+$range = $Range
+if ($gitOk) {
+    if (-not $range) { $range = 'HEAD~1..HEAD' }
+    $rangeUsable = (Test-GitRange -RevRange $range)
+}
+
+# ---------------------------------------------------------------------------
+# 1. commit subjects
+# ---------------------------------------------------------------------------
+Write-Host ''
+Write-Host '--- [1/3] commitmsg: package prefix on this change ---'
+if (-not $gitOk) {
+    Write-Notice 'commitmsg' 'skipped (no git)'
+} elseif (-not $rangeUsable) {
+    Write-Notice 'commitmsg' "range '$range' could not be resolved (first push / force push) -> skipped, fail-open"
+} else {
+    $subjects = Invoke-Git @('log', '--no-merges', '--pretty=format:%s', $range)
+    if ($null -eq $subjects -or $subjects.Count -eq 0) {
+        Write-Notice 'commitmsg' "range '$range' has no non-merge commits -> skipped"
+    } else {
+        $bad = @($subjects | Where-Object { $_ -notmatch '^\[P[0-9]+-[0-9]+\]' })
+        Write-Host "    range: $range"
+        Write-Host "    subjects: $($subjects.Count), non-conforming: $($bad.Count)"
+        $i = 0
+        foreach ($s in $bad) {
+            $i++
+            if ($i -gt $MaxPrinted) { continue }
+            $shown = if ($s.Length -gt 80) { $s.Substring(0, 80) + '...' } else { $s }
+            Write-Finding 'commitmsg' $range "'$shown' does not start with [Px-y] (CONTRIBUTING.md section 3)"
+        }
+        if ($bad.Count -gt $MaxPrinted) { Write-Host "    ... and $($bad.Count - $MaxPrinted) more" }
+        if ($bad.Count -gt 0 -and $strictSet['commitmsg']) { $failed += 'commitmsg' }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# 2. documentation references
+# ---------------------------------------------------------------------------
+Write-Host ''
+Write-Host '--- [2/3] docrefs: relative references must resolve ---'
+$docRoots = @(
+    $docsDir,
+    (Join-Path $RepoRoot '.codebuddy\rules')
+)
+$targets = @()
+foreach ($d in $docRoots) {
+    if (Test-Path -LiteralPath $d) {
+        $targets += @(Get-ChildItem -LiteralPath $d -Recurse -File -Include '*.md', '*.mdc' -ErrorAction SilentlyContinue)
+    }
+}
+foreach ($f in @((Join-Path $RepoRoot 'CONTRIBUTING.md'), (Join-Path $RepoRoot 'README.md'))) {
+    if (Test-Path -LiteralPath $f) { $targets += Get-Item -LiteralPath $f }
+}
+
+if ($targets.Count -eq 0) {
+    Write-Notice 'docrefs' 'no governance documents found -> skipped'
+} else {
+    # A token counts as a document reference only when it is PATH-QUALIFIED (contains '/') and carries
+    # a known extension, or when it is the bare docs/NN shorthand.
+    # Deliberately NOT checked: bare file names such as `MappingEngine.cs` / `condition.ts`.
+    # Those name a file somewhere in the tree, not a location, and they are not what rots
+    # (docs/NN and moved paths are).
+    $extRe = '\.(md|mdc|json|yml|yaml|ps1|py|cs|ts|tsx|csproj|sln|docx|conf)$'
+    $docShorthandRe = '^`?docs/([0-9]+(?:/[0-9]+)*)`?$'
+    $inlineCodeRe = '`([^`]+)`'
+    $linkRe = '\]\(([^)\s]+)\)'
+    $findingCount = 0
+    $refCount = 0
+    $printed = 0
+
+    # All tracked-ish files, used for suffix resolution: docs legitimately write a reference relative
+    # to a project root (`Host/Program.cs`, `Mapping/MappingEngine.cs`), so an exact repo-relative
+    # match is too strict. Suffix matching accepts those while still catching moved files.
+    $skipDirRe = '[\\/](node_modules|\.git|dist|bin|obj|\.vs|\.codebuddy[\\/]rules)[\\/]'
+    $repoFiles = @()
+    try {
+        $repoFiles = @(Get-ChildItem -LiteralPath $RepoRoot -Recurse -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch $skipDirRe })
+    } catch { $repoFiles = @() }
+    $repoFiles = @($repoFiles)
+
+    function Test-RefExists {
+        param([string]$Ref, [string]$DocDir, [string[]]$Roots, [array]$Index)
+        if ($Ref -match '^[a-z]+://' -or $Ref.StartsWith('#') -or $Ref -match '^mailto:') { return $true }
+        if ($Ref.StartsWith('/')) { return $true }                          # URL path, not a repo path
+        if ($Ref -match '[<>*{}\[\]]' -or $Ref -match '\s') { return $true } # placeholder / prose
+        if ($Ref -match '(^|[\\/])NN' -or $Ref -match 'Px-y') { return $true }  # documented naming placeholder
+        if ($Ref -match '\.\.\.') { return $true }                             # elided path (tests/.../X.cs)
+        $clean = ($Ref -split '#')[0].TrimEnd('/', '.')
+        if (-not $clean) { return $true }
+        if ($DocDir -and (Test-Path -LiteralPath (Join-Path $DocDir $clean))) { return $true }
+        foreach ($root in $Roots) {
+            if (Test-Path -LiteralPath (Join-Path $root $clean)) { return $true }
+        }
+        # No leading separator: projects are named `Product.<Area>`, so `Host/Program.cs` must
+        # match `src/Product.Host/Program.cs` (the char before `Host` is a dot, not a separator).
+        $norm = ($clean -replace '/', '\')
+        foreach ($f in $Index) {
+            if ($f.FullName.EndsWith($norm, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+        }
+        return $false
+    }
+
+    foreach ($doc in $targets) {
+        $docDir = Split-Path -Parent $doc.FullName
+        $rel = $doc.FullName.Substring($RepoRoot.Length).TrimStart('\', '/')
+        $lineNo = 0
+        foreach ($line in (Get-Content -LiteralPath $doc.FullName -Encoding UTF8)) {
+            $lineNo++
+            $candidates = @()
+            # Strip inline-code spans BEFORE looking for Markdown links: the governance docs legitimately
+            # write ABOUT link syntax (e.g. `](path)` in the rules for this very check), and a target
+            # inside backticks is prose, not a reference.
+            $linkScope = [regex]::Replace($line, '`[^`]*`', ' ')
+            foreach ($m in [regex]::Matches($linkScope, $linkRe)) { $candidates += $m.Groups[1].Value }
+            foreach ($m in [regex]::Matches($line, $inlineCodeRe)) {
+                $code = $m.Groups[1].Value.Trim()
+                if ($code -match $docShorthandRe -or ($code -match '/' -and $code -match $extRe)) {
+                    $candidates += $code
+                }
+            }
+            foreach ($raw in $candidates) {
+                $ref = $raw.Trim()
+                # Bare docs/NN and docs/NN/MM shorthand -> docs/NN-*.md must exist.
+                if ($ref -match $docShorthandRe) {
+                    foreach ($num in ($Matches[1] -split '/')) {
+                        $refCount++
+                        $padded = ([int]$num).ToString('00')
+                        $hit = @(Get-ChildItem -LiteralPath $docsDir -Filter "$padded-*.md" -File -ErrorAction SilentlyContinue)
+                        if ($hit.Count -eq 0) {
+                            $findingCount++
+                            $printed++
+                            if ($printed -le $MaxPrinted) {
+                                Write-Finding 'docrefs' "${rel}:$lineNo" "'$ref' -> no docs/$padded-*.md exists"
+                            }
+                        }
+                    }
+                    continue
+                }
+                $refCount++
+                if (-not (Test-RefExists -Ref $ref -DocDir $docDir -Roots @($RepoRoot) -Index $repoFiles)) {
+                    $findingCount++
+                    $printed++
+                    if ($printed -le $MaxPrinted) {
+                        Write-Finding 'docrefs' "${rel}:$lineNo" "'$ref' does not resolve"
+                    }
+                }
+            }
+        }
+    }
+    Write-Host "    files: $($targets.Count), references: $refCount, unresolved: $findingCount"
+    if ($findingCount -gt $MaxPrinted) { Write-Host "    (only the first $MaxPrinted findings are listed; $($findingCount - $MaxPrinted) more)" }
+    if ($findingCount -gt 0 -and $strictSet['docrefs']) { $failed += 'docrefs' }
+}
+
+# ---------------------------------------------------------------------------
+# 3. package registry (ghost packages)
+# ---------------------------------------------------------------------------
+Write-Host ''
+Write-Host '--- [3/3] registry: ids used by commits must be registered in the docs ---'
+if (-not $gitOk) {
+    Write-Notice 'registry' 'skipped (no git)'
+} elseif (-not $RegistryAll -and -not $rangeUsable) {
+    Write-Notice 'registry' "range '$range' could not be resolved (first push / force push) -> skipped, fail-open"
+} else {
+    # Keep the git revision and its human-readable label apart: passing the label to git silently
+    # yields "no commit subjects" and would have disabled the whole check.
+    $scopeRev = if ($RegistryAll) { 'HEAD' } else { $range }
+    $scopeLabel = if ($RegistryAll) { 'HEAD (full history)' } else { $range }
+    $subjects = Invoke-Git @('log', '--no-merges', '--pretty=format:%s', $scopeRev)
+    if ($null -eq $subjects -or $subjects.Count -eq 0) {
+        Write-Notice 'registry' "no commit subjects in scope '$scopeLabel' -> skipped"
+    } else {
+        $used = @{}
+        foreach ($s in $subjects) {
+            foreach ($m in [regex]::Matches($s, '\[(P[0-9]+-[0-9]+)')) { $used[$m.Groups[1].Value] = $true }
+        }
+        $registered = @{}
+        if (Test-Path -LiteralPath $docsDir) {
+            foreach ($doc in (Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
+                $text = Get-Content -LiteralPath $doc.FullName -Raw -Encoding UTF8
+                foreach ($m in [regex]::Matches($text, 'P[0-9]+-[0-9]+')) { $registered[$m.Value] = $true }
+            }
+        }
+        $ghosts = @($used.Keys | Where-Object { -not $registered.ContainsKey($_) } | Sort-Object)
+        Write-Host "    scope: $scopeLabel"
+        Write-Host "    ids used by commits: $($used.Count), registered in docs: $($registered.Count), ghost: $($ghosts.Count)"
+        $i = 0
+        foreach ($g in $ghosts) {
+            $i++
+            if ($i -gt $MaxPrinted) { continue }
+            Write-Finding 'registry' 'git history' "$g has commits but is registered in no docs/*.md (see the range-boundary list)"
+        }
+        if ($ghosts.Count -gt $MaxPrinted) { Write-Host "    ... and $($ghosts.Count - $MaxPrinted) more" }
+        if ($ghosts.Count -gt 0 -and $strictSet['registry']) { $failed += 'registry' }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Optional: draft the project timeline's mechanical columns from git.
+# Root cause is that the same fact (date / package / PR) is retyped into several documents
+# and therefore rots; deriving it from git removes the retyping, not just the symptom.
+# ---------------------------------------------------------------------------
+if ($Timeline -and $gitOk) {
+    Write-Host ''
+    Write-Host "--- timeline draft for prefix '$Timeline' (the summary column stays manual) ---"
+    $prefixRe = [regex]::Escape($Timeline)
+    $firstDate = @{}
+    $commitCount = @{}
+    $subjects = Invoke-Git @('log', '--no-merges', '--pretty=format:%ad|%s', '--date=short')
+    if ($subjects) {
+        foreach ($line in $subjects) {
+            $parts = $line -split '\|', 2
+            if ($parts.Count -lt 2) { continue }
+            foreach ($m in [regex]::Matches($parts[1], "\[($prefixRe-[0-9]+)")) {
+                $id = $m.Groups[1].Value
+                # git log is newest-first, so a plain string compare keeps the earliest date.
+                if (-not $firstDate.ContainsKey($id) -or $parts[0] -lt $firstDate[$id]) { $firstDate[$id] = $parts[0] }
+                if ($commitCount.ContainsKey($id)) { $commitCount[$id]++ } else { $commitCount[$id] = 1 }
+            }
+        }
+    }
+    # package -> PR: merge commits read "Merge pull request #122 from owner/P12-9-branch-name".
+    $prOf = @{}
+    $merges = Invoke-Git @('log', '--merges', '--pretty=format:%s')
+    if ($merges) {
+        foreach ($s in $merges) {
+            $m = [regex]::Match($s, 'Merge pull request #([0-9]+) from [^/]+/(\S+)')
+            if (-not $m.Success) { continue }
+            $br = [regex]::Match($m.Groups[2].Value, "^($prefixRe-[0-9]+)")
+            if ($br.Success) { $prOf[$br.Groups[1].Value] = '#' + $m.Groups[1].Value }
+        }
+    }
+    if ($firstDate.Count -eq 0) {
+        Write-Notice 'timeline' "no commit subject carries a [$Timeline-y] prefix"
+    } else {
+        Write-Host '    | Date | Package | Summary (manual) | PR |'
+        Write-Host '    |---|---|---|---|'
+        foreach ($id in ($firstDate.Keys | Sort-Object)) {
+            $pr = if ($prOf.ContainsKey($id)) { $prOf[$id] } else { '(unrecognized, verify)' }
+            Write-Host ("    | {0} | **{1}** |  | {2} |" -f $firstDate[$id], $id, $pr)
+        }
+        $counts = ($commitCount.Keys | Sort-Object | ForEach-Object { "$_=$($commitCount[$_])" }) -join ', '
+        Write-Host "    packages: $($firstDate.Count); commits per package: $counts"
+    }
+}
+
+# ---------------------------------------------------------------------------
+Write-Host ''
+if ($failed.Count -gt 0) {
+    Write-Host "GOVERNANCE_FAIL: strict check(s) reported findings: $($failed -join ', ')"
+    exit 1
+}
+Write-Host 'GOVERNANCE_OK (findings above are warnings unless listed under -Strict)'
+exit 0

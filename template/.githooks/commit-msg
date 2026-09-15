@@ -1,0 +1,16 @@
+#!/bin/sh
+# {{PROJECT_NAME}} 提交信息格式校验钩子（对应 CONTRIBUTING.md §3）。
+# 启用：仓库根目录执行 `git config core.hooksPath .githooks`（一次，随仓库分发）。
+# 规则：提交信息首行必须以工作包编号前缀开头，例如 `[P0-1] 建立核心抽象`。
+# 边界：本钩子只校验前缀"形态"，不校验编号"是否已登记"——后者由 CI governance 作业的
+#       registry 检查兜底（严格项），因此 --no-verify 之后仍有第二道。
+# 不合规直接拒绝提交（exit 1），把"编号对齐"变成无法绕过的本地红线。
+
+commit_msg_file="$1"
+first_line=$(head -n 1 "$commit_msg_file")
+
+if ! printf '%s' "$first_line" | grep -qE '^\[P[0-9]+-[0-9]+\]'; then
+  echo "ERROR: 提交信息必须以工作包编号前缀开头，例如：[P0-1] 建立核心抽象"
+  echo "       规范见 CONTRIBUTING.md §3。当前首行：$first_line"
+  exit 1
+fi

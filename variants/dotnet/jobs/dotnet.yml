@@ -1,0 +1,44 @@
+  # 主门禁线（.NET）：还原 / 构建 / 测试。
+  # 门禁：引用类型可空注解（CS8632）已由 Directory.Build.props 的 WarningsAsErrors 设为编译错误，
+  # 此处不额外加 -warnaserror，避免既有非致命警告把 CI 整体判红。
+  dotnet:
+    name: .NET 还原 / 构建 / 测试
+    needs: changes
+    # 门控**失败开放**：判定作业失败 / 输出缺失时**照跑**——宁可多花分钟数，也绝不允许
+    # 「判不出来 → 跳过验证」。`!cancelled()` 保证 concurrency 取消旧运行时不会把重作业拽起来。
+    if: ${{ !cancelled() && needs.changes.outputs.main != 'false' }}
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '{{CI_RUNNER}}') }}
+    # 兜底上限：正常远小于此值；真正的挂起由 --blame-hang 在 5min 处判定并指名挂起测试。
+    timeout-minutes: 20
+    # 只降噪、不改行为：抑制测试宿主（WebApplicationFactory / TestServer 等）的
+    # ASP.NET Core 请求级 Info 日志——它们经 dotnet test 转发进 CI 日志，淹没测试结果。
+    env:
+      Logging__LogLevel__Microsoft.AspNetCore: Warning
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 还原
+        run: dotnet restore
+
+      - name: 构建
+        run: dotnet build --no-restore
+
+      # --blame-hang 是外部看门狗（位于 vstest 进程，独立于被测进程的线程池）：
+      # 单例测试超过 5min 未结束即判定挂起 → 指名挂起测试 + 失败退出，不再靠人工发现与取消。
+      # dump-type=none：只产出小的 .sequence.xml（够定位），不产几百 MB 的 dump。
+      - name: 测试
+        run: dotnet test --no-build --verbosity normal --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type none
+
+      # 挂起/失败时把挂起序列文件带出（含挂起测试名与各测试起止时间），供事后定位。
+      - name: 上传挂起诊断
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-test-diagnostics
+          path: '**/TestResults/**'
+          if-no-files-found: ignore

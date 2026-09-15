@@ -1,0 +1,19 @@
+---
+description: 质量门禁（栈无关）：构建零新增警告、每工作包至少一个单测、约束优先编进构建而非写在文档。
+alwaysApply: true
+enabled: true
+updatedAt: 2026-09-15T00:00:00.000Z
+provider:
+---
+
+# 质量门禁（L0 预防层）
+
+- `{{BUILD_CMD}}` 全绿且**零新增警告**；`{{TEST_CMD}}` 全绿。
+- **每个工作包至少配一个单测**（放在本栈惯用的测试目录），作为 DoD 的硬证据。
+- **能用构建期错误表达的约束，就不要只写在文档里**——软约束会被绕过，硬约束不会（`CONTRIBUTING.md` §8）。
+- **不要**在项目文件里私自放宽栈专属红线（如 csproj 覆盖 `Nullable`、`tsconfig` 关掉 `strict`、Go 忽略 `vet` 结果）；
+  确需放宽须走显式评审并同步规范，而不是就地关掉。
+- **规范 / 文档门禁**：`tools/governance-check.ps1` 校验提交前缀 / 文档引用 / 编号登记；本地先跑一次再提 PR。
+- **看板门禁**（若仓库保留 `tools/kanban-check.ps1`）：改配色或接线后必须重跑——它**对产物运行**，先 `tools/build-kanban.ps1`。
+
+> 完整门禁说明见 `CONTRIBUTING.md` §6；栈专属门禁的载体见第四节与该文档 §11。

@@ -1,0 +1,149 @@
+name: 自举验证（干净检出）
+
+# 目的：在「全新检出」下验证仓库可自举——CI 天然没有本地构建产物 / node_modules / 未入库文件，
+# 因此能捕获只在 clone 场景暴露、本地永远看不出的问题（源码被 .gitignore 误伤而从未入库、
+# lock 文件与 manifests 失同步等）。
+#
+# ---------------------------------------------------------------------------
+# 设计要点（承 CONTRIBUTING.md §6 / §8）
+#
+# 1. 三条线，按变更范围选择性执行（`changes` 作业）：
+#      · main       —— 主门禁线（构建 / 测试）；**由 `-Stack` 注入的作业承担**（见下方 STACK_JOB 锚点行）
+#      · frontend   —— 前端 / 原型目录改动（未引入前端时不注入该作业）
+#      · governance —— 规范 / 文档（提交前缀 / 文档引用 / 编号登记）
+#    净效果：改后端不跑前端、反之亦然，省钱且不降门禁强度。
+#
+# 2. **刻意不使用 paths-ignore**：文档与规范恰恰是"写了却没人验"的重灾区。
+#    若用 paths-ignore 排除 docs/**.md，文档就成了全仓**唯一没有门禁的资产**，
+#    陈旧引用与"幽灵编号"在结构上不可能被发现。正确做法是让文档提交照常触发，
+#    但由 `governance` 这条**轻作业**（秒级）接管，而非跳过整个流程。
+#
+# 3. **失败开放（fail-open）**：变更范围判不出来（首次推送 / force push / API 失败）
+#    一律「按需要验证处理」——门禁的价值高于省下的几分钟，绝不允许"判不出来 → 跳过验证"。
+#
+# 4. **运行器由仓库变量 `CI_RUNNER_LABELS` 驱动**（默认 `{{CI_RUNNER}}`）。
+#    · 切换不需要改本文件：Settings → Secrets and variables → Actions → Variables 里设值；
+#    · 若本项目存在**仅在某个 OS 通过**的测试（进程内 broker / COM / 平台 API 等），
+#      必须钉死该 OS 标签，不要把裸 `self-hosted` 交给它随机落到别的系统。
+#
+# 5. **成本提示**：私有仓库按「作业实际运行」计费；自托管运行器 = **0 托管分钟**，
+#    但必须**在线且空闲**，否则作业会长时间 `queued`。
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [{{INTEGRATION_BRANCH}}, {{RELEASE_BRANCH}}]
+  pull_request:
+    branches: [{{INTEGRATION_BRANCH}}]
+  workflow_dispatch:
+
+# 同一分支只保留最新一次运行（连续 push 时取消已过时的运行）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 变更范围判定：决定各条线是否需要跑。
+  # 不依赖任何 shell（Windows 自托管机上 `shell: bash` 会解析到 WSL 的 bash.exe，
+  # 它看不到 Windows 路径），改用官方 Node action + REST API 列举变更文件 →
+  # 跨平台一致、且无需 checkout。
+  changes:
+    name: 变更范围判定
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '{{CI_RUNNER}}') }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      main: ${{ steps.filter.outputs.main }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - id: filter
+        name: 判定变更范围
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            let files = [];
+            try {
+              if (pr) {
+                for await (const page of github.paginate.iterator(github.rest.pulls.listFiles, {
+                  ...context.repo, pull_number: pr.number, per_page: 100
+                })) {
+                  for (const f of page.data) files.push(f.filename);
+                }
+              } else if (context.payload.before && context.payload.after &&
+                         !/^0+$/.test(context.payload.before)) {
+                const cmp = await github.rest.repos.compareCommits({
+                  ...context.repo, base: context.payload.before, head: context.payload.after
+                });
+                files = (cmp.data.files || []).map((f) => f.filename);
+              }
+            } catch (e) {
+              core.warning(`变更范围判定失败：${e.message}`);
+              files = [];
+            }
+
+            // 判不出来（首次推送 / force push / 无法列举 / 调用失败）→ 保守：都跑
+            if (files.length === 0) {
+              core.notice('无法确定变更范围 → 按「需要验证」处理');
+              core.setOutput('main', 'true');
+              core.setOutput('frontend', 'true');
+              return;
+            }
+
+            // ---- 按实际目录结构维护这两条判据（改目录 = 改这里）----
+            const isDoc = (f) => f.startsWith('docs/') || f.endsWith('.md') || /(^|\/)smoke_.*\.ps1$/.test(f);
+            const isFrontend = (f) => f.startsWith('frontend/') || f.startsWith('web/') || f.startsWith('ui/');
+            const isWorkflow = (f) => f.startsWith('.github/workflows/');
+
+            let main = false;
+            let frontend = false;
+            for (const f of files) {
+              if (isWorkflow(f)) { main = true; frontend = true; continue; } // 改 CI 本身：都跑（否则会漏验）
+              if (isDoc(f)) { continue; }      // 文档 / 冒烟脚本：不影响重作业门禁（由 governance 线接管）
+              if (isFrontend(f)) { frontend = true; continue; }
+              main = true;                     // 其余：保守跑主门禁
+            }
+
+            core.notice(`变更 ${files.length} 个文件：main=${main} frontend=${frontend}`);
+            core.setOutput('main', String(main));
+            core.setOutput('frontend', String(frontend));
+
+  # === 主门禁线：由 `-Stack` 注入的作业占据此锚点 =============================
+  # 该锚点行由 OctopusSeed 生成器替换为本栈的 CI 作业（variants/<stack>/jobs/*.yml）；
+  # `-Stack generic` 时整行被删除（此时只剩变更判定与规范文档线）。
+  {{STACK_JOB}}
+
+  # 规范/文档线（承 CONTRIBUTING.md §6 / §7 / §8）。
+  # 存在理由：若只保留代码门禁，docs/** 与规范文件将成为全仓**唯一没有门禁的资产**，
+  # 陈旧引用与"幽灵编号"只能靠人工比对。本作业把这三类问题变成**可自动发现**。
+  # 成本：秒级；不 checkout 重依赖、不装 SDK。
+  # 严格度：**按测量分级**。新仓无历史债，建议一开始就 `-Strict all`（比"先放水再收紧"干净）；
+  # 存量合规率低时才退回 `-Strict registry` 并逐项提升，避免历史债把 CI 变成常红。
+  governance:
+    name: 规范与文档校验（提交信息 / 文档引用 / 编号登记）
+    if: ${{ !cancelled() }}
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '{{CI_RUNNER}}') }}
+    timeout-minutes: 10
+    steps:
+      # 该校验脚本是 PowerShell（刻意 ASCII-only）；若运行器不是 Windows，明确失败而不是静默跳过。
+      - name: 平台前置检查（本作业需要 PowerShell）
+        if: runner.os != 'Windows'
+        run: |
+          echo "::error::规范/文档线当前需要 Windows（tools/governance-check.ps1 为 PowerShell 脚本）。"
+          echo "当前运行器：${{ runner.os }}。若要在 Linux 上运行，请安装 pwsh 并把本作业改为 shell: pwsh。"
+          exit 1
+
+      # fetch-depth: 0 —— 提交信息区间与「编号登记」都要查完整 git 历史（含 origin/<base>）。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 校验（拉取请求：本次 PR 的提交）
+        if: github.event_name == 'pull_request'
+        run: ./tools/governance-check.ps1 -Range "origin/${{ github.base_ref }}...HEAD" -Strict all
+
+      - name: 校验（推送 / 手动：本次推送的提交）
+        if: github.event_name != 'pull_request'
+        run: ./tools/governance-check.ps1 -Range "${{ github.event.before }}..${{ github.event.after }}" -Strict all
