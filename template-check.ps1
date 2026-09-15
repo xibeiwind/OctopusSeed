@@ -218,14 +218,18 @@ if ($Smoke) {
                     Finding 'smoke' "$stack : workflow missing"
                 }
 
-                $gov = Join-Path $tmp 'tools\governance-check.ps1'
-                if (Test-Path -LiteralPath $gov) {
+                # every shipped PowerShell tool must at least parse - a gate that cannot run is
+                # indistinguishable from a gate that passed (CONTRIBUTING.md section 10, item 12)
+                foreach ($tool in @('governance-check.ps1', 'claim.ps1', 'metrics.ps1', 'kanban-data.ps1', 'kanban-check.ps1')) {
+                    $toolPath = Join-Path $tmp "tools\$tool"
+                    if (-not (Test-Path -LiteralPath $toolPath)) { Finding 'smoke' "$stack : tools/$tool missing"; continue }
                     $parseErrors = $null
-                    [void][System.Management.Automation.Language.Parser]::ParseFile($gov, [ref]$null, [ref]$parseErrors)
-                    if ($parseErrors.Count -gt 0) { Finding 'smoke' "$stack : tools/governance-check.ps1 does not parse: $($parseErrors[0].Message)" }
-                } else {
-                    Finding 'smoke' "$stack : tools/governance-check.ps1 missing"
+                    [void][System.Management.Automation.Language.Parser]::ParseFile($toolPath, [ref]$null, [ref]$parseErrors)
+                    if ($parseErrors.Count -gt 0) { Finding 'smoke' "$stack : tools/$tool does not parse: $($parseErrors[0].Message)" }
                 }
+
+                # the metrics assertion must actually be wired into the CI job
+                if ($wt -and -not $wt.Contains('metrics.ps1 -Check')) { Finding 'smoke' "$stack : CI does not run tools/metrics.ps1 -Check" }
 
                 Info ("{0}: generated {1} files - ok" -f $stack, @(Get-ChildItem -LiteralPath $tmp -Recurse -File -Force).Count)
             } catch {

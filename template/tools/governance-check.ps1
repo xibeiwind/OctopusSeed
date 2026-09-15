@@ -8,8 +8,8 @@ ONLY assets with no check at all. Stale references and "ghost package ids" then 
 found by hand, and structurally never by a gate. This script IS that gate. It is read-only:
 it never edits anything.
 
-Three checks
-------------
+Six checks
+----------
   1. commitmsg  commit subjects of THIS change must start with a package prefix `[Px-y]`
                 (CONTRIBUTING.md section 3). Historic subjects often do not comply (early
                 prototype commits, stage-level `[P9]`, `style:`/`docs:` conventional commits),
@@ -27,6 +27,24 @@ Three checks
                 is registered anywhere). Default scope is the changed range (same as commitmsg);
                 use -RegistryAll for a full-history audit, which will surface known historical
                 leftovers.
+  4. claim      the BRANCH NAME is a claim on a package id, so `-Branch <name>` must carry an id
+                that is already registered in docs/*.md. Rationale: "register before you use" was
+                only enforced at commit time, which is too late - two parallel workstreams can
+                pick the same id and only collide at review. The branch is the earliest
+                OBSERVABLE signal of "this package has started", so it is where the check belongs.
+  5. provenance unresolved values must have an owner. Every "to be measured / to be decided"
+                marker inside the numbered baseline docs (01-/02-) must sit on a line (or under a
+                heading) that names where the value will come from: a docs/ reference, or an
+                I#/Q# gap id, or a package id. Rationale: when AI does the mechanical writing, a
+                confident-looking but unsourced statement is the cheapest possible mistake - and
+                no shape check catches it.
+  6. hotdocs    one commit deleting more than -HotDocDeletes lines from any docs/*.md is
+                reported. Rationale: "never rewrite a tracked document wholesale" cannot be
+                judged mechanically, but the risky ACTION has a mechanical signature - mass
+                deletion. The gate makes it visible before the accident, instead of banning it.
+
+All six are read-only. An id can be CLAIMED (written into the stage plan) by tools/claim.ps1;
+this script never writes.
 
 Strictness
 ----------
@@ -51,10 +69,16 @@ param(
     # Git range for the commit-message and registry checks, e.g. "origin/develop...HEAD" or
     # "<before>..<after>". Empty (default) means "only the tip commit" - the useful local default.
     [string]$Range = '',
-    # Which checks fail the build on findings: 'all' or a comma list of commitmsg,docrefs,registry.
+    # Which checks fail the build on findings: 'all' or a comma list of
+    # commitmsg,docrefs,registry,claim,provenance,hotdocs.
     [string]$Strict = '',
     # Registry only: scan the whole history instead of just the changed range (audit mode).
     [switch]$RegistryAll,
+    # Branch name of the change under review (CI passes github.head_ref). Used by the `claim`
+    # check: the package id carried by the branch must already be registered. Empty skips it.
+    [string]$Branch = '',
+    # hotdocs only: how many lines deleted from ONE docs/*.md file by ONE commit is too many.
+    [int]$HotDocDeletes = 60,
     # Draft a per-package table straight from git for a stage prefix (e.g. 'P12'), so the project
     # timeline's mechanical columns (date / package / PR) stop being copied by hand.
     # Only those columns are derived - the summary column stays human-written on purpose.
@@ -75,7 +99,10 @@ $strictSet = @{}
 foreach ($name in ($Strict -split ',' | ForEach-Object { $_.Trim().ToLower() })) {
     if ($name) { $strictSet[$name] = $true }
 }
-if ($strictSet['all']) { $strictSet['commitmsg'] = $true; $strictSet['docrefs'] = $true; $strictSet['registry'] = $true }
+if ($strictSet['all']) {
+    $strictSet['commitmsg'] = $true; $strictSet['docrefs'] = $true; $strictSet['registry'] = $true
+    $strictSet['claim'] = $true; $strictSet['provenance'] = $true; $strictSet['hotdocs'] = $true
+}
 
 function Write-Finding {
     param([string]$Check, [string]$Where, [string]$Message)
@@ -98,6 +125,18 @@ function Test-GitRange {
     & git -C $RepoRoot rev-list --max-count=1 $RevRange 2>$null | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
+function Get-RegisteredIds {
+    # Package ids mentioned anywhere under docs/. Shared by `registry` (commit side) and `claim`
+    # (branch side) so the two can never disagree about what "registered" means.
+    $registered = @{}
+    if (Test-Path -LiteralPath $docsDir) {
+        foreach ($doc in (Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
+            $text = Get-Content -LiteralPath $doc.FullName -Raw -Encoding UTF8
+            foreach ($m in [regex]::Matches($text, 'P[0-9]+-[0-9]+')) { $registered[$m.Value] = $true }
+        }
+    }
+    return $registered
+}
 
 $gitOk = ($null -ne (Invoke-Git @('rev-parse', '--git-dir')))
 if (-not $gitOk) { Write-Notice 'git' 'not a git work tree -> commit-message and registry checks skipped' }
@@ -114,7 +153,7 @@ if ($gitOk) {
 # 1. commit subjects
 # ---------------------------------------------------------------------------
 Write-Host ''
-Write-Host '--- [1/3] commitmsg: package prefix on this change ---'
+Write-Host '--- [1/6] commitmsg: package prefix on this change ---'
 if (-not $gitOk) {
     Write-Notice 'commitmsg' 'skipped (no git)'
 } elseif (-not $rangeUsable) {
@@ -143,7 +182,7 @@ if (-not $gitOk) {
 # 2. documentation references
 # ---------------------------------------------------------------------------
 Write-Host ''
-Write-Host '--- [2/3] docrefs: relative references must resolve ---'
+Write-Host '--- [2/6] docrefs: relative references must resolve ---'
 $docRoots = @(
     $docsDir,
     (Join-Path $RepoRoot '.codebuddy\rules')
@@ -263,7 +302,7 @@ if ($targets.Count -eq 0) {
 # 3. package registry (ghost packages)
 # ---------------------------------------------------------------------------
 Write-Host ''
-Write-Host '--- [3/3] registry: ids used by commits must be registered in the docs ---'
+Write-Host '--- [3/6] registry: ids used by commits must be registered in the docs ---'
 if (-not $gitOk) {
     Write-Notice 'registry' 'skipped (no git)'
 } elseif (-not $RegistryAll -and -not $rangeUsable) {
@@ -281,13 +320,7 @@ if (-not $gitOk) {
         foreach ($s in $subjects) {
             foreach ($m in [regex]::Matches($s, '\[(P[0-9]+-[0-9]+)')) { $used[$m.Groups[1].Value] = $true }
         }
-        $registered = @{}
-        if (Test-Path -LiteralPath $docsDir) {
-            foreach ($doc in (Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
-                $text = Get-Content -LiteralPath $doc.FullName -Raw -Encoding UTF8
-                foreach ($m in [regex]::Matches($text, 'P[0-9]+-[0-9]+')) { $registered[$m.Value] = $true }
-            }
-        }
+        $registered = Get-RegisteredIds
         $ghosts = @($used.Keys | Where-Object { -not $registered.ContainsKey($_) } | Sort-Object)
         Write-Host "    scope: $scopeLabel"
         Write-Host "    ids used by commits: $($used.Count), registered in docs: $($registered.Count), ghost: $($ghosts.Count)"
@@ -300,6 +333,104 @@ if (-not $gitOk) {
         if ($ghosts.Count -gt $MaxPrinted) { Write-Host "    ... and $($ghosts.Count - $MaxPrinted) more" }
         if ($ghosts.Count -gt 0 -and $strictSet['registry']) { $failed += 'registry' }
     }
+}
+
+# ---------------------------------------------------------------------------
+# 4. claim - the branch name is a claim on a package id
+# ---------------------------------------------------------------------------
+Write-Host ''
+Write-Host '--- [4/6] claim: the branch name must carry an already-registered id ---'
+if (-not $Branch) {
+    Write-Notice 'claim' 'no -Branch given (local run) -> skipped'
+} else {
+    $claimMatch = [regex]::Match($Branch, 'P[0-9]+-[0-9]+')
+    if (-not $claimMatch.Success) {
+        Write-Notice 'claim' "branch '$Branch' carries no Px-y id -> skipped (not every branch is a package branch)"
+    } else {
+        $claimId = $claimMatch.Value
+        $registeredForClaim = Get-RegisteredIds
+        if ($registeredForClaim.ContainsKey($claimId)) {
+            Write-Host "    branch: $Branch -> $claimId is registered"
+        } else {
+            Write-Finding 'claim' "branch $Branch" "$claimId is claimed by this branch but registered in no docs/*.md - register it BEFORE work starts (tools/claim.ps1, CONTRIBUTING.md section 9)"
+            if ($strictSet['claim']) { $failed += 'claim' }
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# 5. provenance - an unresolved value must name who will settle it
+# ---------------------------------------------------------------------------
+Write-Host ''
+Write-Host '--- [5/6] provenance: unresolved values must have an owner ---'
+# The CJK markers are built from code points on purpose: this file stays ASCII-only.
+$markMeasured = [string]([char]0x5F85) + [char]0x5B9E + [char]0x6D4B   # "to be measured"
+$markDecided = [string]([char]0x5F85) + [char]0x5B9A                   # "to be decided"
+$baselineDocs = @()
+if (Test-Path -LiteralPath $docsDir) {
+    $baselineDocs = @(Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^0[12]-' })
+}
+if ($baselineDocs.Count -eq 0) {
+    Write-Notice 'provenance' 'no numbered baseline docs (01- / 02-) -> skipped'
+} else {
+    # An owner is any of: a docs/ reference, a gap id (I#), a decision id (Q#), a package id.
+    $ownerRe = '(docs/) |(\bI[0-9]+\b)|(\bQ[0-9]+\b)|(P[0-9]+-[0-9]+)'
+    $ownerRe = $ownerRe -replace ' ', ''
+    $marked = 0
+    $provFindings = 0
+    foreach ($doc in $baselineDocs) {
+        $rel = $doc.FullName.Substring($RepoRoot.Length).TrimStart('\')
+        $heading = ''
+        $lineNo = 0
+        foreach ($line in (Get-Content -LiteralPath $doc.FullName -Encoding UTF8)) {
+            $lineNo++
+            if ($line -match '^#{1,6}\s') { $heading = $line }
+            if (-not ($line.Contains($markMeasured) -or $line.Contains($markDecided))) { continue }
+            $marked++
+            if ($line -notmatch $ownerRe -and $heading -notmatch $ownerRe) {
+                $provFindings++
+                if ($provFindings -le $MaxPrinted) {
+                    Write-Finding 'provenance' "${rel}:$lineNo" 'unresolved value has no owner - name the docs reference / gap id / package that will settle it'
+                }
+            }
+        }
+    }
+    Write-Host "    baseline docs: $($baselineDocs.Count), unresolved markers: $marked, without owner: $provFindings"
+    if ($provFindings -gt 0 -and $strictSet['provenance']) { $failed += 'provenance' }
+}
+
+# ---------------------------------------------------------------------------
+# 6. hotdocs - a single commit must not gut a governance document
+# ---------------------------------------------------------------------------
+Write-Host ''
+Write-Host '--- [6/6] hotdocs: mass deletion from docs/*.md must be visible ---'
+if (-not $gitOk) {
+    Write-Notice 'hotdocs' 'skipped (no git)'
+} elseif (-not $rangeUsable) {
+    Write-Notice 'hotdocs' "range '$range' could not be resolved (first push / force push) -> skipped, fail-open"
+} else {
+    # --numstat plus a per-commit header: "<add>\t<del>\t<path>" rows follow each "@@<sha> <subject>".
+    # core.quotepath=false is required: otherwise git escapes CJK paths as octal + quotes, and
+    # both the "docs/" prefix test and the ".md" suffix test below would silently never match.
+    $numstat = Invoke-Git @('-c', 'core.quotepath=false', 'log', '--no-merges', '--numstat', '--pretty=format:@@%h %s', $range)
+    $hot = 0
+    $cur = ''
+    if ($numstat) {
+        foreach ($line in $numstat) {
+            if ($line.StartsWith('@@')) { $cur = $line.Substring(2); continue }
+            if ($line -notmatch '^([0-9]*|-)\t([0-9]*|-)\t(.+)$') { continue }
+            $del = $Matches[2]
+            $path = $Matches[3].Trim('"')
+            if ($del -eq '-' -or -not $path.StartsWith('docs/') -or -not $path.EndsWith('.md')) { continue }
+            if ([int]$del -gt $HotDocDeletes) {
+                $hot++
+                Write-Finding 'hotdocs' $cur "deleted $del lines from $path (threshold $HotDocDeletes) - if this is an intentional rewrite, commit the current state first (CONTRIBUTING.md section 9)"
+            }
+        }
+    }
+    Write-Host "    scope: $range, threshold: $HotDocDeletes deleted lines per file per commit, hits: $hot"
+    if ($hot -gt 0 -and $strictSet['hotdocs']) { $failed += 'hotdocs' }
 }
 
 # ---------------------------------------------------------------------------

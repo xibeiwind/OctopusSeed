@@ -58,6 +58,8 @@
 | 工具 | `tools/build-kanban.ps1` | copy | 生成静态快照 `tools/kanban.html`（产物不入库） | `.gitignore` |
 | 工具 | `tools/serve-kanban.ps1` | copy | 本地实时看板 + 只读 `/docs/<name>` | 端口 |
 | 工具 | `tools/kanban-check.ps1` | copy | 看板配色 / 接线 / 几何 / 运行期门禁（**对产物运行**） | 断言中的文档形态 |
+| 工具 | `tools/claim.ps1` | rewrite | **编号原子占用**：开工前把 `Px-y` 写进阶段计划 §3（已被占用即拒绝），把"先登记后使用"提前到开工期 | 阶段计划文件名形态（`^NN-Px`）与 §3 表结构 |
+| 工具 | `tools/metrics.ps1` | rewrite | **可复算过程指标** + 时间线指标自动块（`-Write` 刷新 / `-Check` 断言未陈旧） | 指标口径、自动块锚点 `<!-- METRICS:AUTO -->` |
 
 ### 2.2 变体 `variants/<stack>/`
 
@@ -101,6 +103,21 @@
 | 文档编号准入 | 带编号仅 `01`/`02`/阶段计划/专项设计/收口评审；四份常驻单例**刻意不编号** | 保持这条纪律，否则编号空间会被"补号"漂移 |
 | 前端线 | 变体 `typescript/jobs/frontend.yml` | 无前端则不加该变体（不要在 CI 里留注释掉的死作业） |
 | 看板 | 内核自带（可按需删） | 若不要看板，删 `tools/kanban*` 与 `CONTRIBUTING.md` §10，并同步删 CI 中的看板门禁步骤 |
+| 度量与并行工具 | `tools/metrics.ps1`（可复算指标）、`tools/claim.ps1`（编号原子占用） | 若只要最小集可整体删除；删掉后**同步删 CI 里对应的步骤**与 `CONTRIBUTING.md` §9.6 的引用 |
+
+### 3.3 最小可用子集（只想要一部分收益时，该取哪一部分）
+
+不必全盘引入。**三档，每一档都自洽可运行**：
+
+| 档位 | 取什么 | 得到什么 | 放弃什么 |
+|---|---|---|---|
+| **A 最小**（半天） | `CONTRIBUTING.md` §1~§3（编号 / 分支 / 提交）+ `.githooks/commit-msg` | 需求 ↔ 工作包 ↔ 代码的编号对齐；提交前缀**硬校验** | 无阶段计划驱动、无文档门禁、无看板 |
+| **B 标准**（1~2 天） | A + `docs/` 骨架（四份常驻单例 + 三份模板）+ `tools/governance-check.ps1` + CI 的 `governance` 作业 + `.codebuddy/rules/*` | 阶段计划驱动（`R-Plan-1~11`）、文档引用与编号登记门禁、AI 侧预防层 | 看板、栈专属门禁、度量 |
+| **C 完整** | B + 看板（`tools/kanban*`）+ 栈门禁（`variants/<stack>`）+ `tools/claim.ps1` / `metrics.ps1` | 全量：多维视图、并行安全、可复算度量、门禁自证 | 复杂度代价（文档重、依赖工具链） |
+
+**选档口诀**：**A 用于"能把编号对齐就行"**；**B 用于"要有'下一步'的唯一出处"**；**C 用于"要可审计、可度量"**。
+
+> 无论取哪一档，都**保留** `template/CONTRIBUTING.md` §8.1 的要求：写不出机械判据的约束，明确标为**软约束或无保障**，不要假装有门禁。
 
 ---
 
@@ -130,6 +147,7 @@
 | `template/docs/{01-需求规格说明书,02-总体设计}.md`、`template/.codebuddy/rules/quality-gate/` | 源项目有对应实体但**内容是项目专属**：抽取为**骨架**与**栈无关规则** | 2026-09-15 | 2026-09-15 |
 | `variants/*/gate.md` | **本次新设**：变体说明必须**随产物走**（变体目录本身不拷进目标），故拆出可注入产物 README 的门禁节 | 2026-09-15 | 2026-09-15 |
 | `OctopusSeed/{.gitignore,.codebuddy/rules/seed-maintenance/}` | 模板仓**自身**的忽略规则与维护纪律（"吃自己的狗粮"） | 2026-09-15 | 2026-09-15 |
+| `template/tools/{claim,metrics}.ps1`、`governance-check.ps1` 的 `claim`/`provenance`/`hotdocs` 三项、`template/docs/项目时间线.md` 的指标自动块 | **本次新设**（"保障分层"设计的产物）：编号原子占用、可复算度量、未定项归属与热点文档可见性 | 2026-09-15 | 2026-09-15 |
 
 > **改模板的流程**：改内核 → 跑 `template-check.ps1 -Smoke` → 更新本表「最后对账」列 → 提交。
 > **源项目继续演进不影响本模板**：本模板是**快照 + 抽取**，不是源的镜像；两者解耦后靠上表记录血缘，而不是靠同步脚本。

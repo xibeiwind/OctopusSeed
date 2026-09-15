@@ -122,7 +122,7 @@ jobs:
   # 严格度：**按测量分级**。新仓无历史债，建议一开始就 `-Strict all`（比"先放水再收紧"干净）；
   # 存量合规率低时才退回 `-Strict registry` 并逐项提升，避免历史债把 CI 变成常红。
   governance:
-    name: 规范与文档校验（提交信息 / 文档引用 / 编号登记）
+    name: 规范与文档校验（编号 / 引用 / 分支占用 / 未定项归属 / 大删 / 指标）
     if: ${{ !cancelled() }}
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '{{CI_RUNNER}}') }}
     timeout-minutes: 10
@@ -140,10 +140,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      # -Branch 让 `claim` 检查生效：分支名即"这个包已开工"的最早可观测信号，
+      # 它携带的编号必须在 docs/*.md 中已登记（把"先登记后使用"的时点从提交期提前到开工期）。
       - name: 校验（拉取请求：本次 PR 的提交）
         if: github.event_name == 'pull_request'
-        run: ./tools/governance-check.ps1 -Range "origin/${{ github.base_ref }}...HEAD" -Strict all
+        run: ./tools/governance-check.ps1 -Range "origin/${{ github.base_ref }}...HEAD" -Branch "${{ github.head_ref }}" -Strict all
 
       - name: 校验（推送 / 手动：本次推送的提交）
         if: github.event_name != 'pull_request'
-        run: ./tools/governance-check.ps1 -Range "${{ github.event.before }}..${{ github.event.after }}" -Strict all
+        run: ./tools/governance-check.ps1 -Range "${{ github.event.before }}..${{ github.event.after }}" -Branch "${{ github.ref_name }}" -Strict all
+
+      # 度量线：把「机械事实只在时间线一处、且不许手抄」（R-Plan-6）变成可断言的东西——
+      # 复算指标与文档里的自动块比对，不等即失败；未初始化（全 n/a）时只提示，让新仓不"出生即红"。
+      - name: 过程指标（复算断言）
+        run: ./tools/metrics.ps1 -Check
