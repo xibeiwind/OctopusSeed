@@ -12,13 +12,15 @@
 |---|---|---|---|---|
 | `{{PROJECT_NAME}}` | 项目 / 产品名 | `OctopusCtrlBridge` | 非空；出现在 README、AI 规则、看板标题、`.NET` 程序集属性 | 内核 + 变体 |
 | `{{APP_KEY}}` | 小写短标识，用作浏览器 `localStorage` 键与临时文件前缀 | `ocb` | 小写字母数字，建议 3~8 位，**勿含下划线**（模板写作 `{{APP_KEY}}_kanban_theme`） | 内核（看板模板 / 校验脚本） |
-| `{{STACK_NAME}}` | 技术栈名，写进文档与规则 | `.NET` / `TypeScript` / `Go` / `通用` | 由 `-Stack` 决定 | 内核 + 变体 |
+| `{{STACK_NAME}}` | 技术栈**显示名**，写进文档与规则 | `.NET` / `TypeScript` / `Go` / `通用` | 由 `-Stack` 决定；**不要用在路径里**（`.NET` 不是合法目录名） | 内核 + 变体 |
+| `{{STACK_ID}}` | 技术栈**目录名**，用于路径 | `dotnet` / `typescript` / `go` / `generic` | 由 `-Stack` 决定；路径里必须用它 | 内核 + 变体 |
 | `{{BUILD_CMD}}` | 构建命令（门禁的"硬约束"载体） | `dotnet build` / `npm run build` / `go build ./...` | 必须**全绿即 0 警告 0 错误**或等价 | 内核文档 + 变体 |
 | `{{TEST_CMD}}` | 测试命令 | `dotnet test` / `npm test` / `go test ./...` | 全绿 | 内核文档 + 变体 |
 | `{{INTEGRATION_BRANCH}}` | 集成分支 | `develop` | 特性分支从此切出；CI 触发分支同步改 | 内核（CI + 规范正文） |
 | `{{RELEASE_BRANCH}}` | 发布分支 | `main` | — | 内核（CI + 规范正文） |
 | `{{CI_RUNNER}}` | CI 运行器标签（JSON 数组串） | `["windows-latest"]` | 若存在**仅在某 OS 通过**的测试，必须钉死标签 | 内核（CI） |
 | `{{STACK_JOB}}` | CI 中「栈作业」的注入锚点 | — | 由变体的 `jobs/<stack>.yml` 替换；`generic` 时整体删除 | 内核（CI） |
+| `{{STACK_GATE}}` | 产物 README 中「栈专属门禁」节的注入锚点 | — | 由变体的 `gate.md` 替换；`generic` 时整行删除 | 内核（README） |
 
 > **替换纪律**：占位符形如 `{{大写字母与下划线}}`——刻意**不含 `$`**，因此在 GitHub Actions 里不会与 `${{ ... }}` 表达式冲突。
 > 全局替换时必须只匹配 `\{\{[A-Z][A-Z0-9_]*\}\}`，**不要**用宽松的 `\{\{.*?\}\}`（会吃掉 Actions 表达式）。
@@ -43,6 +45,8 @@
 | 强制 | `tools/governance-check.ps1` | copy | 提交前缀 / 文档引用 / 编号登记 三项校验（CI + 本地） | 编号正则、文档根目录 |
 | 强制 | `.github/workflows/verify-clean-build.yml` | rewrite | 变更范围判定 + 规范文档线（栈作业由变体注入 `{{STACK_JOB}}`） | 触发分支、运行器变量名 |
 | 骨架 | `docs/README.md` | rewrite | 文档地图、分层（L0~L4）、按任务路由、开工入口 | 能力专题索引、阶段索引 |
+| 骨架 | `docs/01-需求规格说明书.md` | rewrite | 需求 ID / 范围 / 红线 / 阶段划分总纲（L1 基线骨架） | 需求 ID 形态、阶段划分表 |
+| 骨架 | `docs/02-总体设计.md` | rewrite | 架构、工程落位、关键契约、数据配置（L1 基线骨架） | 分层与运行时、未定项标注纪律 |
 | 骨架 | `docs/需求跟踪矩阵.md` | rewrite | RTM：需求 → 工作包 → 验收/证据 | 需求 ID 形态 |
 | 骨架 | `docs/范围边界清单.md` | rewrite | 候选池 / 遗漏项**单一登记处**（`R-Plan-7`） | 类别与状态取值 |
 | 骨架 | `docs/项目时间线.md` | rewrite | 机械事实**单一权威处**（`R-Plan-6`） | 表格列形态（看板判据依赖它） |
@@ -64,6 +68,9 @@
 | dotnet | `global.json` | copy | 钉 SDK 版本（`rollForward` 策略） |
 | dotnet | `.codebuddy/rules/nullable-gate/RULE.mdc` | copy | 可空红线与零警告（AI 预防层） |
 | dotnet | `jobs/dotnet.yml` | rewrite | CI 栈作业片段（还原 / 构建 / 测试 + 挂起看门狗） |
+| dotnet | `gate.md` | rewrite | **注入产物 README** 的「栈专属门禁」节（载体表 + 纪律 + 取舍理由） |
+| typescript | `gate.md` | rewrite | 同上（前端线） |
+| go | `gate.md` | rewrite | 同上 |
 | typescript | `jobs/frontend.yml` + `README.md` | rewrite | 前端线（`npm ci` 严格按 lock / typecheck / test / build）与 strict 落地指引 |
 | go | `jobs/go.yml` + `README.md` | rewrite | `go vet` / `staticcheck` / `go test ./...` 与零警告落地指引 |
 | 通用 | `generic`（无目录） | — | 只有内核：流程门禁成立，无编译期门禁 |
@@ -120,6 +127,9 @@
 | `variants/dotnet/{Directory.Build.props,.targets,global.json}` | OctopusCtrlBridge 仓库根 | 2026-09-15 | 2026-09-15 |
 | `variants/dotnet/.codebuddy/rules/nullable-gate` | OctopusCtrlBridge `.codebuddy/rules/` | 2026-09-15 | 2026-09-15 |
 | `template/CONTRIBUTING.md`、`template/README.md`、`template/docs/{README,需求跟踪矩阵,范围边界清单,项目时间线}.md`、`template/.github/workflows/verify-clean-build.yml` | 由源项目对应文件**通用化改写** | 2026-09-15 | 2026-09-15 |
+| `template/docs/{01-需求规格说明书,02-总体设计}.md`、`template/.codebuddy/rules/quality-gate/` | 源项目有对应实体但**内容是项目专属**：抽取为**骨架**与**栈无关规则** | 2026-09-15 | 2026-09-15 |
+| `variants/*/gate.md` | **本次新设**：变体说明必须**随产物走**（变体目录本身不拷进目标），故拆出可注入产物 README 的门禁节 | 2026-09-15 | 2026-09-15 |
+| `OctopusSeed/{.gitignore,.codebuddy/rules/seed-maintenance/}` | 模板仓**自身**的忽略规则与维护纪律（"吃自己的狗粮"） | 2026-09-15 | 2026-09-15 |
 
 > **改模板的流程**：改内核 → 跑 `template-check.ps1 -Smoke` → 更新本表「最后对账」列 → 提交。
 > **源项目继续演进不影响本模板**：本模板是**快照 + 抽取**，不是源的镜像；两者解耦后靠上表记录血缘，而不是靠同步脚本。

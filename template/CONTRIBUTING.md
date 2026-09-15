@@ -93,7 +93,7 @@
 **栈专属门禁（本仓为 {{STACK_NAME}}）**
 
 - 原则：**能用构建期错误表达的约束，就不要只写在文档里**（§8）。
-- {{STACK_NAME}} 的具体载体见仓库内 `variants/{{STACK_NAME}}/README.md`（生成期已按栈注入 CI 作业与配置）。
+- {{STACK_NAME}} 的具体载体（配置文件的约束、CI 作业、纪律）见本仓 `README.md` 的「栈专属门禁」一节；改动这些**载体**等于改动门禁，须走显式评审（`README.md` 与 `CONTRIBUTING.md` 同批修订）。
 
 ---
 

@@ -29,7 +29,9 @@
 {{TEST_CMD}}      # 单测全绿（基线数字见 docs/项目时间线.md §1）
 ```
 
-本仓技术栈：**{{STACK_NAME}}**；栈专属门禁的载体见 `CONTRIBUTING.md` §6。
+本仓技术栈：**{{STACK_NAME}}**；栈无关门禁见 `CONTRIBUTING.md` §6。
+
+{{STACK_GATE}}
 
 ## 首次启用（一次性）
 
