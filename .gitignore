@@ -1,0 +1,9 @@
+# 本仓是**模板仓**（不含构建产物）：只忽略本地临时文件与生成物。
+# 生成出来的项目自带 template/.gitignore（那是给产物用的，不是给本仓用的）。
+tools/kanban.html
+# 本仓无编译项目：*.sln 只是本地用 VS 打开目录时的产物
+*.sln
+*.tmp
+*.log
+.DS_Store
+Thumbs.db

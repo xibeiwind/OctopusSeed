@@ -16,15 +16,23 @@
 | 约束写在文档里被绕过 | 能用**构建期错误**表达的约束就编进构建；本地钩子 + CI 是第二、第三道 |
 | 需求无限膨胀、计划永远超载 | **两清单 + 三闸门**：候选池不设上限，排期表必须封顶（`R-Plan-9`） |
 
+> **正在决定是否采用？** 先读 [`PROCESS-COMPARISON.md`](./PROCESS-COMPARISON.md)：它逐维度对比了本过程与主流框架
+> （谁更硬、谁更轻、谁有度量），并诚实列出**本过程的 7 项缺口**与补强成本；再看 [`MANIFEST.md`](./MANIFEST.md) §3
+> （通用内核 vs 需定制项）判断要付出多少迁移成本。
+
 ## 二、目录结构
 
 ```
 OctopusSeed/
 ├─ README.md                ← 本文件：模板使用说明
 ├─ MANIFEST.md              ← 资产清单 / 占位符表 / 定制点清单（★ 迁移前必读）
+├─ PROCESS-COMPARISON.md    ← 过程横向评估：与瀑布 / RUP / Scrum / Kanban / XP / Shape Up / SAFe / DevOps / CMMI
+│                             / spec-driven 的逐维度对比，含强度快照、缺口与补强建议、适用性判定
 ├─ manifest.json            ← 机器可读清单（init.ps1 与 template-check.ps1 消费）
 ├─ init.ps1                 ← 生成器：按参数渲染到目标目录并输出启用清单
-├─ template-check.ps1       ← 模板自检：占位符 / 清单一致性 / 文档引用 / 冒烟生成
+├─ template-check.ps1       ← 模板自检：占位符 / 清单双向一致性 / 文档引用 / 冒烟生成
+├─ .gitignore               ← 本仓自身的忽略规则（它是模板仓，不含构建产物）
+├─ .codebuddy/rules/        ← 本仓自身的 AI 规则：改模板的纪律（"吃自己的狗粮"）
 ├─ template/                ← 栈无关内核（占位符化，可直接拷进任何新仓）
 │  ├─ CONTRIBUTING.md       ← 规范正文（§1~§11）
 │  ├─ README.md .gitignore  ← 仓库入口与忽略规则

@@ -61,6 +61,7 @@ $map = [ordered]@{
     'PROJECT_NAME'       = $ProjectName
     'APP_KEY'            = $AppKey
     'STACK_NAME'         = [string]$stackMeta.display
+    'STACK_ID'           = $Stack
     'BUILD_CMD'          = $BuildCmd
     'TEST_CMD'           = $TestCmd
     'INTEGRATION_BRANCH' = $IntegrationBranch
@@ -80,6 +81,15 @@ if ($jobRel) {
     $jobPath = Join-Path (Join-Path $variantsRoot $Stack) ($jobRel -replace '/', '\')
     if (-not (Test-Path -LiteralPath $jobPath)) { throw "stack job not found: $jobPath" }
     $jobText = (Render (Read-Text $jobPath)).TrimEnd()
+}
+
+# --- stack gate section (injected into the generated README) ----------------
+# The variant folder itself is NOT copied into the target, so the gate write-up has to travel
+# with the generated docs - otherwise the reader of the new repo has no idea what enforces what.
+$gateText = ''
+$gatePath = Join-Path (Join-Path $variantsRoot $Stack) 'gate.md'
+if ($Stack -ne 'generic' -and (Test-Path -LiteralPath $gatePath)) {
+    $gateText = (Render (Read-Text $gatePath)).TrimEnd()
 }
 
 # --- target guard -----------------------------------------------------------
@@ -119,6 +129,13 @@ function Emit([string]$srcRoot, [System.IO.FileInfo]$file, [bool]$isVariant) {
             $text = $text.Replace('{{STACK_JOB}}', $jobText)
         } else {
             $text = $text -replace '(?m)^[ \t*#]*\{\{STACK_JOB\}\}[ \t]*\r?\n', ''
+        }
+    }
+    if ($text.Contains('{{STACK_GATE}}')) {
+        if ($gateText) {
+            $text = $text.Replace('{{STACK_GATE}}', $gateText)
+        } else {
+            $text = $text -replace '(?m)^[ \t]*\{\{STACK_GATE\}\}[ \t]*\r?\n', ''
         }
     }
     $useBom = ($ext -eq '.ps1')

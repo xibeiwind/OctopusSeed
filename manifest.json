@@ -11,13 +11,15 @@
   "placeholders": {
     "PROJECT_NAME": { "example": "OctopusCtrlBridge", "required": true, "note": "project / product name" },
     "APP_KEY": { "example": "ocb", "required": true, "note": "lowercase short key for localStorage and temp file prefixes; derived from PROJECT_NAME when omitted" },
-    "STACK_NAME": { "example": ".NET", "required": true, "note": "from -Stack" },
+    "STACK_NAME": { "example": ".NET", "required": true, "note": "display name, from -Stack; do NOT use it in paths" },
+    "STACK_ID": { "example": "dotnet", "required": true, "note": "stack folder name (dotnet|typescript|go|generic); use THIS in paths" },
     "BUILD_CMD": { "example": "dotnet build", "required": true, "note": "must be green with zero new warnings" },
     "TEST_CMD": { "example": "dotnet test", "required": true, "note": "" },
     "INTEGRATION_BRANCH": { "example": "develop", "required": true, "note": "feature branches are cut from it; CI trigger branches use it too" },
     "RELEASE_BRANCH": { "example": "main", "required": true, "note": "" },
     "CI_RUNNER": { "example": "[\"windows-latest\"]", "required": true, "note": "JSON array string used by fromJSON(vars.CI_RUNNER_LABELS || ...)" },
-    "STACK_JOB": { "example": "", "required": false, "note": "CI injection anchor: replaced by variants/<stack>/jobs/*.yml, removed for -Stack generic" }
+    "STACK_JOB": { "example": "", "required": false, "note": "CI injection anchor: replaced by variants/<stack>/jobs/*.yml, removed for -Stack generic" },
+    "STACK_GATE": { "example": "", "required": false, "note": "README injection anchor: replaced by variants/<stack>/gate.md, removed for -Stack generic" }
   },
   "stacks": {
     "generic": { "display": "generic", "buildCmd": "<your build command>", "testCmd": "<your test command>", "job": "" },
@@ -29,7 +31,7 @@
     "core": "template",
     "variants": "variants"
   },
-  "variantOnlyFiles": ["README.md"],
+  "variantOnlyFiles": ["README.md", "gate.md"],
   "variantOnlyDirs": ["jobs"],
   "required": [
     "template/README.md",
@@ -42,6 +44,8 @@
     "template/.codebuddy/rules/rtm-traceability/RULE.mdc",
     "template/.codebuddy/rules/quality-gate/RULE.mdc",
     "template/docs/README.md",
+    "template/docs/01-需求规格说明书.md",
+    "template/docs/02-总体设计.md",
     "template/docs/需求跟踪矩阵.md",
     "template/docs/范围边界清单.md",
     "template/docs/项目时间线.md",
@@ -60,9 +64,12 @@
     "variants/dotnet/jobs/dotnet.yml",
     "variants/dotnet/.codebuddy/rules/nullable-gate/RULE.mdc",
     "variants/dotnet/README.md",
+    "variants/dotnet/gate.md",
     "variants/typescript/README.md",
+    "variants/typescript/gate.md",
     "variants/typescript/jobs/frontend.yml",
     "variants/go/README.md",
+    "variants/go/gate.md",
     "variants/go/jobs/go.yml"
   ],
   "forbiddenInTemplate": [
