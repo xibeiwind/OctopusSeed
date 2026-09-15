@@ -1,0 +1,24 @@
+---
+description: OctopusSeed 模板仓自身的维护纪律：改 template/ 或 variants/ 后必跑 template-check，新增文件必登记，占位符以 manifest.json 为唯一真相源。
+alwaysApply: true
+enabled: true
+updatedAt: 2026-09-15T00:00:00.000Z
+provider:
+---
+
+# 模板仓维护纪律（OctopusSeed）
+
+本仓是**模板**，不是产品代码：它的"构建产物"是**被生成出来的那个项目**。
+
+- **改完必自检**：对 `template/**` 或 `variants/**` 的任何改动，提交前必须跑
+  `powershell -ExecutionPolicy Bypass -File template-check.ps1 -Smoke`
+  （占位符 / 清单双向一致性 / 文档引用 / 按栈生成冒烟）。
+- **占位符的唯一真相源是 `manifest.json`**：新增占位符必须同时出现在 `manifest.json` 的 `placeholders` 与 `MANIFEST.md` §1；
+  两处不一致会被检查 3 拦下。形态固定为大写蛇形 `{{LIKE_THIS}}`——**不要**引入含 `$` 的形式（会与 GitHub Actions 表达式 `${{ }}` 冲突）。
+- **新增 / 删除随模板分发的文件**，必须同步 `manifest.json` 的 `required` 与 `MANIFEST.md` §2：检查 1 是**双向**的，少登记与多登记都会报。
+- **不得把源项目内容写回模板**：`manifest.json` 的 `forbiddenInTemplate` 列出禁词，检查 2 会扫。
+- **栈专属内容只放 `variants/<stack>/`**：核心里不写任何语言的构建细节；`{{STACK_JOB}}`（CI 作业）与 `{{STACK_GATE}}`（README 的门禁节）
+  两个锚点由 `init.ps1` 注入，`-Stack generic` 时整行删除。
+- **改模板后更新 `MANIFEST.md` §5 的「最后对账」日期**——它是血缘记录，不是装饰。
+- **门禁要能证明有效**：新增一条检查后，**刻意制造一次对应违规**确认被拦下（判据太松或复刻不出环境的"假守卫"只能这样发现）。
+- **本仓自身也遵守它所描述的规范**：版本节奏、单一权威处、引用不复述、状态标记等纪律同样适用于本仓文档。

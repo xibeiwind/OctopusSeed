@@ -77,12 +77,26 @@ function Test-SkipRef([string]$r) {
 
 # --- [1/5] required files ----------------------------------------------------
 Write-Host ''
-Write-Host '--- [1/5] required files ---'
+Write-Host '--- [1/5] required files (both directions) ---'
 $missing = 0
+$requiredSet = @{}
 foreach ($rel in @($meta.required)) {
+    $requiredSet[$rel] = $true
     if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot ($rel -replace '/', '\')))) { Finding 'required' "missing: $rel"; $missing++ }
 }
-Info ("checked {0} entries, missing {1}" -f @($meta.required).Count, $missing)
+# reverse direction: a file that ships with the template but is not declared would silently
+# escape every other check (the manifest is what init.ps1 and this script trust).
+$shipped = @()
+foreach ($rt in @($coreRoot, $variantsRoot)) {
+    if (Test-Path -LiteralPath $rt) {
+        $shipped += @(Get-ChildItem -LiteralPath $rt -Recurse -File -Force | ForEach-Object { $_.FullName.Substring($RepoRoot.Length).TrimStart('\') -replace '\\', '/' })
+    }
+}
+$undeclared = 0
+foreach ($s in $shipped) {
+    if (-not $requiredSet.ContainsKey($s)) { Finding 'manifest' "shipped but not declared in manifest.json required : $s"; $undeclared++ }
+}
+Info ("declared {0}, shipped {1}, missing {2}, undeclared {3}" -f @($meta.required).Count, $shipped.Count, $missing, $undeclared)
 
 # --- [2/5] placeholders & forbidden tokens ----------------------------------
 Write-Host ''
