@@ -16,6 +16,7 @@
 | `{{STACK_ID}}` | 技术栈**目录名**，用于路径 | `dotnet` / `typescript` / `go` / `generic` | 由 `-Stack` 决定；路径里必须用它 | 内核 + 变体 |
 | `{{BUILD_CMD}}` | 构建命令（门禁的"硬约束"载体） | `dotnet build` / `npm run build` / `go build ./...` | 必须**全绿即 0 警告 0 错误**或等价 | 内核文档 + 变体 |
 | `{{TEST_CMD}}` | 测试命令 | `dotnet test` / `npm test` / `go test ./...` | 全绿 | 内核文档 + 变体 |
+| `{{SMOKE_CMD}}` | 冒烟命令（**I1 主干可运行**）：构建 → 启动 → 打一次真实请求 | `<your smoke command>` | **留空即"无保障"**——`manifest.json` 的 `stacks.<栈>.smokeCmd` 为空时只渲染这条提示语；**不要接一条"空过"的命令**（§8.1 第 2 条纪律） | 内核文档 + 变体 |
 | `{{INTEGRATION_BRANCH}}` | 集成分支 | `develop` | 特性分支从此切出；CI 触发分支同步改 | 内核（CI + 规范正文） |
 | `{{RELEASE_BRANCH}}` | 发布分支 | `main` | — | 内核（CI + 规范正文） |
 | `{{CI_RUNNER}}` | CI 运行器标签（JSON 数组串） | `["windows-latest"]` | 若存在**仅在某 OS 通过**的测试，必须钉死标签 | 内核（CI） |
@@ -36,7 +37,7 @@
 | 层 | 文件 | transform | 作用 | 迁移时须检查 |
 |---|---|---|---|---|
 | 入口 | `README.md` | rewrite | 项目入口 + 过程资源一览 + 一次性启用步骤 | 构建/测试命令、目录名 |
-| 规范 | `CONTRIBUTING.md` | rewrite | 编号 / 分支 / 提交 / PR / 回填 / 门禁 / `R-Plan-1~11` / 任务治理 / 看板 / 模板 | §6 门禁命令、§10 文档信号表 |
+| 规范 | `CONTRIBUTING.md` | rewrite | 编号 / 分支 / 提交 / PR / 回填 / 门禁 / `R-Plan-1~12` / 任务治理 / 结构重构通道 / 看板 / 模板 | §6 门禁命令、§10 文档信号表 |
 | 预防 | `.codebuddy/rules/stage-plan-driven/RULE.mdc` | copy | 开工读计划、完工回填（AI 侧强制） | 文档命名形态（`NN-Px执行计划.md`） |
 | 预防 | `.codebuddy/rules/coding-conventions/RULE.mdc` | copy | 编号体系与提交/分支/PR 形态 | 分支名、编号示例 |
 | 预防 | `.codebuddy/rules/rtm-traceability/RULE.mdc` | copy | 需求 ↔ 工作包追溯与回填 | 登记处文件名 |
@@ -52,7 +53,7 @@
 | 骨架 | `docs/项目时间线.md` | rewrite | 机械事实**单一权威处**（`R-Plan-6`） | 表格列形态（看板判据依赖它） |
 | 骨架 | `docs/模板/阶段执行计划模板.md` | copy | 阶段计划固定骨架（`R-Plan-1`，§0~§9） | — |
 | 骨架 | `docs/模板/能力专题设计模板.md` | copy | L2 能力专题（含「契约归属」防撒盐节） | — |
-| 骨架 | `docs/模板/阶段收口评审模板.md` | copy | 收口评审（`R-Plan-8` 清算 / 摘取 / 审视） | — |
+| 骨架 | `docs/模板/阶段收口评审模板.md` | copy | 收口评审（`R-Plan-8` 清算 / 摘取 / 审视 + 必答两问：**删掉了什么** / **设计被修订过吗**） | — |
 | 工具 | `tools/kanban-data.ps1` | copy | 文档 → 看板模型的**唯一**解析点 | §10 的「文档信号 = 接口」逐项对账 |
 | 工具 | `tools/kanban.template.html` | copy | 看板模板**唯一**来源（静态与实时同源） | 标题、`{{APP_KEY}}` |
 | 工具 | `tools/build-kanban.ps1` | copy | 生成静态快照 `tools/kanban.html`（产物不入库） | `.gitignore` |
@@ -84,7 +85,8 @@
 ### 3.1 技术栈无关 —— **可直接沿用**
 
 - 单一编号体系（需求 `§xx` / `R-xx` ↔ 工作包 `Px-y` ↔ 代码 `[Px-y]`）与双向追溯；
-- 阶段计划驱动 `R-Plan-1~11` 与 7 步工作包推进闭环；
+- 阶段计划驱动 `R-Plan-1~12` 与 7 步工作包推进闭环；
+- **设计分级与减法检查点**：契约性设计一次做对、结构性设计够用即止（`R-Plan-12`）；结构重构通道不占包位、不参与价值比价（§9.5.2）；收口评审必答"删掉了什么 / 设计被修订过吗"（`R-Plan-8`）；
 - 任务治理「两清单 + 三闸门」与艾森豪威尔矩阵的**客观判据版**（`CONTRIBUTING.md` §9.5）；
 - 文档分层 L0~L4 与「契约归属」防撒盐原则、单一权威处（`R-Plan-6` / `R-Plan-7`）；
 - 提交前缀钩子、文档引用校验、编号登记校验、看板一致性门禁；
@@ -97,6 +99,7 @@
 | 集成分支 / 发布分支名 | `{{INTEGRATION_BRANCH}}` = `develop` | 按团队约定改；同时改 CI 的 `on.branches` |
 | CI 运行器 | `{{CI_RUNNER}}` = `["windows-latest"]` | 自托管/其它 OS 按需改；**存在平台专属测试时必须钉死标签** |
 | 构建 / 测试命令 | `{{BUILD_CMD}}` / `{{TEST_CMD}}` | 换成该栈命令；**零警告**要求不能放宽 |
+| 冒烟命令（**I1 主干可运行**） | `{{SMOKE_CMD}}`（取自 `stacks.<栈>.smokeCmd`，默认空） | 填入本栈的"构建 → 启动 → 打一次真实请求"命令，并取消 CI 里那三行注释；**填不出就承认"无保障"**，不要留一条空过的命令 |
 | 门禁严格度 | `-Strict registry`（仅编号登记严格） | 新仓无历史债，**建议一开始就 `-Strict all`**（比"先放水再收紧"干净） |
 | 需求编号形态 | `§<章节号>` / `R-<数字>` / `R-N<数字>` | 若团队另有形态，四处同改（规范正文 / RTM / 看板判据 / 钩子正则） |
 | 应用短标识 | `{{APP_KEY}}` | 取项目缩写；改了要同步看板模板与校验脚本 |
@@ -112,7 +115,7 @@
 | 档位 | 取什么 | 得到什么 | 放弃什么 |
 |---|---|---|---|
 | **A 最小**（半天） | `CONTRIBUTING.md` §1~§3（编号 / 分支 / 提交）+ `.githooks/commit-msg` | 需求 ↔ 工作包 ↔ 代码的编号对齐；提交前缀**硬校验** | 无阶段计划驱动、无文档门禁、无看板 |
-| **B 标准**（1~2 天） | A + `docs/` 骨架（四份常驻单例 + 三份模板）+ `tools/governance-check.ps1` + CI 的 `governance` 作业 + `.codebuddy/rules/*` | 阶段计划驱动（`R-Plan-1~11`）、文档引用与编号登记门禁、AI 侧预防层 | 看板、栈专属门禁、度量 |
+| **B 标准**（1~2 天） | A + `docs/` 骨架（四份常驻单例 + 三份模板）+ `tools/governance-check.ps1` + CI 的 `governance` 作业 + `.codebuddy/rules/*` | 阶段计划驱动（`R-Plan-1~12`）、文档引用与编号登记门禁、AI 侧预防层 | 看板、栈专属门禁、度量 |
 | **C 完整** | B + 看板（`tools/kanban*`）+ 栈门禁（`variants/<stack>`）+ `tools/claim.ps1` / `metrics.ps1` | 全量：多维视图、并行安全、可复算度量、门禁自证 | 复杂度代价（文档重、依赖工具链） |
 
 **选档口诀**：**A 用于"能把编号对齐就行"**；**B 用于"要有'下一步'的唯一出处"**；**C 用于"要可审计、可度量"**。
@@ -140,14 +143,15 @@
 | `template/tools/*`（5 个看板工具 + governance-check） | OctopusCtrlBridge `tools/` | 2026-09-15 | 2026-09-15 |
 | `template/.codebuddy/rules/{stage-plan-driven,coding-conventions,rtm-traceability}` | OctopusCtrlBridge `.codebuddy/rules/` | 2026-09-15 | 2026-09-15 |
 | `template/.githooks/commit-msg` | OctopusCtrlBridge `.githooks/` | 2026-09-15 | 2026-09-15 |
-| `template/docs/模板/*` | OctopusCtrlBridge `docs/模板/` | 2026-09-15 | 2026-09-15 |
+| `template/docs/模板/*` | OctopusCtrlBridge `docs/模板/` | 2026-09-15 | 2026-09-20 |
 | `variants/dotnet/{Directory.Build.props,.targets,global.json}` | OctopusCtrlBridge 仓库根 | 2026-09-15 | 2026-09-15 |
 | `variants/dotnet/.codebuddy/rules/nullable-gate` | OctopusCtrlBridge `.codebuddy/rules/` | 2026-09-15 | 2026-09-15 |
-| `template/CONTRIBUTING.md`、`template/README.md`、`template/docs/{README,需求跟踪矩阵,范围边界清单,项目时间线}.md`、`template/.github/workflows/verify-clean-build.yml` | 由源项目对应文件**通用化改写** | 2026-09-15 | 2026-09-15 |
+| `template/CONTRIBUTING.md`、`template/README.md`、`template/docs/{README,需求跟踪矩阵,范围边界清单,项目时间线}.md`、`template/.github/workflows/verify-clean-build.yml` | 由源项目对应文件**通用化改写** | 2026-09-15 | 2026-09-20 |
 | `template/docs/{01-需求规格说明书,02-总体设计}.md`、`template/.codebuddy/rules/quality-gate/` | 源项目有对应实体但**内容是项目专属**：抽取为**骨架**与**栈无关规则** | 2026-09-15 | 2026-09-15 |
 | `variants/*/gate.md` | **本次新设**：变体说明必须**随产物走**（变体目录本身不拷进目标），故拆出可注入产物 README 的门禁节 | 2026-09-15 | 2026-09-15 |
 | `OctopusSeed/{.gitignore,.codebuddy/rules/seed-maintenance/}` | 模板仓**自身**的忽略规则与维护纪律（"吃自己的狗粮"） | 2026-09-15 | 2026-09-15 |
 | `template/tools/{claim,metrics}.ps1`、`governance-check.ps1` 的 `claim`/`provenance`/`hotdocs` 三项、`template/docs/项目时间线.md` 的指标自动块 | **本次新设**（"保障分层"设计的产物）：编号原子占用、可复算度量、未定项归属与热点文档可见性 | 2026-09-15 | 2026-09-15 |
+| `template/CONTRIBUTING.md`（§1 / §6 / §8.2 / §9.1 / §9.2 / §9.5.2 / §10）、`template/docs/模板/*`、`variants/*/jobs/*.yml`、`manifest.json` 与 `init.ps1` 的 `SMOKE_CMD`、`.codebuddy/rules/stage-plan-driven/` | **本次新设**（"设计可变更性"评审的产物）：主干可运行不变量 **I1**、`R-Plan-12` 设计两级、结构重构通道（§9.5.2）、收口必答两问（减法检查点 / 设计是否被修订）、失效信号（§8.2，**软层，刻意不可机械复算**） | 2026-09-20 | 2026-09-20 |
 
 > **改模板的流程**：改内核 → 跑 `template-check.ps1 -Smoke` → 更新本表「最后对账」列 → 提交。
 > **源项目继续演进不影响本模板**：本模板是**快照 + 抽取**，不是源的镜像；两者解耦后靠上表记录血缘，而不是靠同步脚本。

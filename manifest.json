@@ -15,6 +15,7 @@
     "STACK_ID": { "example": "dotnet", "required": true, "note": "stack folder name (dotnet|typescript|go|generic); use THIS in paths" },
     "BUILD_CMD": { "example": "dotnet build", "required": true, "note": "must be green with zero new warnings" },
     "TEST_CMD": { "example": "dotnet test", "required": true, "note": "" },
+    "SMOKE_CMD": { "example": "<your smoke command>", "required": false, "note": "I1 mainline-runnable invariant: build -> start -> one real request. Empty smokeCmd renders this hint and CONTRIBUTING.md section 6 declares the invariant UNGUARDED (section 8.1) - never wire an empty command that trivially passes" },
     "INTEGRATION_BRANCH": { "example": "develop", "required": true, "note": "feature branches are cut from it; CI trigger branches use it too" },
     "RELEASE_BRANCH": { "example": "main", "required": true, "note": "" },
     "CI_RUNNER": { "example": "[\"windows-latest\"]", "required": true, "note": "JSON array string used by fromJSON(vars.CI_RUNNER_LABELS || ...)" },
@@ -22,10 +23,10 @@
     "STACK_GATE": { "example": "", "required": false, "note": "README injection anchor: replaced by variants/<stack>/gate.md, removed for -Stack generic" }
   },
   "stacks": {
-    "generic": { "display": "generic", "buildCmd": "<your build command>", "testCmd": "<your test command>", "job": "" },
-    "dotnet": { "display": ".NET", "buildCmd": "dotnet build", "testCmd": "dotnet test", "job": "jobs/dotnet.yml" },
-    "typescript": { "display": "TypeScript", "buildCmd": "npm run build", "testCmd": "npm test", "job": "jobs/frontend.yml" },
-    "go": { "display": "Go", "buildCmd": "go build ./...", "testCmd": "go test ./...", "job": "jobs/go.yml" }
+    "generic": { "display": "generic", "buildCmd": "<your build command>", "testCmd": "<your test command>", "smokeCmd": "", "job": "" },
+    "dotnet": { "display": ".NET", "buildCmd": "dotnet build", "testCmd": "dotnet test", "smokeCmd": "", "job": "jobs/dotnet.yml" },
+    "typescript": { "display": "TypeScript", "buildCmd": "npm run build", "testCmd": "npm test", "smokeCmd": "", "job": "jobs/frontend.yml" },
+    "go": { "display": "Go", "buildCmd": "go build ./...", "testCmd": "go test ./...", "smokeCmd": "", "job": "jobs/go.yml" }
   },
   "roots": {
     "core": "template",

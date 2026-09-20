@@ -56,6 +56,11 @@ if (-not $AppKey) {
 }
 if (-not $BuildCmd) { $BuildCmd = [string]$stackMeta.buildCmd }
 if (-not $TestCmd) { $TestCmd = [string]$stackMeta.testCmd }
+# I1 (mainline-runnable) has no stack-agnostic form: a real smoke command is project-specific.
+# An empty smokeCmd renders the generic hint, and CONTRIBUTING.md section 6 declares the invariant
+# UNGUARDED in that case - a gate that cannot fail is not a gate.
+$SmokeCmd = [string]$stackMeta.smokeCmd
+if (-not $SmokeCmd) { $SmokeCmd = '<your smoke command>' }
 
 $map = [ordered]@{
     'PROJECT_NAME'       = $ProjectName
@@ -64,6 +69,7 @@ $map = [ordered]@{
     'STACK_ID'           = $Stack
     'BUILD_CMD'          = $BuildCmd
     'TEST_CMD'           = $TestCmd
+    'SMOKE_CMD'          = $SmokeCmd
     'INTEGRATION_BRANCH' = $IntegrationBranch
     'RELEASE_BRANCH'     = $ReleaseBranch
     'CI_RUNNER'          = $CiRunner

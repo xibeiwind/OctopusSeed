@@ -14,7 +14,7 @@
 
 | 层 | 资源 | 作用 |
 |---|---|---|
-| 规范 | `CONTRIBUTING.md` | 编号 / 分支 / 提交 / PR / 回填 / 门禁 / `R-Plan-1~11` / 任务治理 / 看板 |
+| 规范 | `CONTRIBUTING.md` | 编号 / 分支 / 提交 / PR / 回填 / 门禁 / `R-Plan-1~12` / 任务治理 / 看板 |
 | 预防层 | `.codebuddy/rules/*` | 把规范内建为 AI 默认行为 |
 | 强制层 | `.githooks/commit-msg` | 提交信息必须带 `[Px-y]` 前缀，否则本地拒绝 |
 | 强制层 | `.github/workflows/verify-clean-build.yml` | 变更范围判定 + 构建测试 + 规范文档线 |
@@ -27,6 +27,7 @@
 ```sh
 {{BUILD_CMD}}     # 要求 0 警告 0 错误
 {{TEST_CMD}}      # 单测全绿（基线数字见 docs/项目时间线.md §1）
+{{SMOKE_CMD}}     # I1 主干可运行：构建 -> 启动 -> 打一次真实请求；未填 = 本条显式无保障
 ```
 
 本仓技术栈：**{{STACK_NAME}}**；栈无关门禁见 `CONTRIBUTING.md` §6。

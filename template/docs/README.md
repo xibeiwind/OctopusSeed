@@ -73,7 +73,7 @@
 |---|---|
 | 编号体系（需求 §xx ↔ 工作包 Px-y ↔ 代码 `[Px-y]`） | `CONTRIBUTING.md` §1 |
 | 分支 / 提交 / PR | `CONTRIBUTING.md` §2–§4 |
-| **阶段与工作包推进机制（`R-Plan-1~11`）** | `CONTRIBUTING.md` §9 |
+| **阶段与工作包推进机制（`R-Plan-1~12`）** | `CONTRIBUTING.md` §9 |
 | 进度回填与文档同步 | `CONTRIBUTING.md` §5 |
 | 质量门禁 | `CONTRIBUTING.md` §6 |
 | 约束分层（预防 + 强制） | `CONTRIBUTING.md` §8 |
