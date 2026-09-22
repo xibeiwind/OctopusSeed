@@ -16,6 +16,7 @@
 - `T?`（引用类型可空注解）禁止；值类型可空（`int?`、`enum?`，即 `Nullable<T>`）始终合法。
 - 需要**局部**可空分析时，用 `#nullable enable` 在**单个文件**内开启并自洽，**不要**改全局设置。
 - 不要用 `-warnaserror` 粗暴兜底：把具体红线（`CS8632`）编进 `WarningsAsErrors` 才能定位。
+  > **但这不妨碍判据用它**：`tools/verify.ps1` 的构建判据是 `dotnet build -warnaserror`——那里要的是**退出码即结论**（比抓 MSBuild 汇总行可靠：那行是**本地化**的，"0 个警告"与 "0 Warning(s)" 解析不出同一件事）。**红线定位仍靠 `WarningsAsErrors`**，两者分工不同：一个判"绿不绿"，一个告诉你"为什么红"。
 
 > 本仓的取舍是 **`Nullable=disable` + 禁 `T?`**（可机械断言、不强迫存量全量迁移）。
 > 若你要改用 `Nullable=enable` 全量可空分析，请同时改 `Directory.Build.props`、`.targets` 断言与 `nullable-gate` 规则——
