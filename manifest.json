@@ -1,6 +1,6 @@
 {
   "name": "OctopusSeed",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Human-AI collaborative software engineering process template: numbered traceability (requirement <-> work package <-> code), stage-plan-driven delivery, and hard gates enforced at build/hook/CI.",
   "provenance": {
     "extractedFrom": "OctopusCtrlBridge",
@@ -16,6 +16,7 @@
     "BUILD_CMD": { "example": "dotnet build", "required": true, "note": "must be green with zero new warnings" },
     "TEST_CMD": { "example": "dotnet test", "required": true, "note": "" },
     "SMOKE_CMD": { "example": "<your smoke command>", "required": false, "note": "I1 mainline-runnable invariant: build -> start -> one real request. Empty smokeCmd renders this hint and CONTRIBUTING.md section 6 declares the invariant UNGUARDED (section 8.1) - never wire an empty command that trivially passes" },
+    "BUILD_GATE_CMD": { "example": "dotnet build -warnaserror", "required": false, "note": "criterion 1 of tools/verify.ps1 (CONTRIBUTING.md section 6.1): the stack's own carrier for 'green with zero warnings'. Empty gateBuildCmd falls back to buildCmd; a '<...>' hint makes the criterion print UNGUARDED instead of a fake pass" },
     "INTEGRATION_BRANCH": { "example": "develop", "required": true, "note": "feature branches are cut from it; CI trigger branches use it too" },
     "RELEASE_BRANCH": { "example": "main", "required": true, "note": "" },
     "CI_RUNNER": { "example": "[\"windows-latest\"]", "required": true, "note": "JSON array string used by fromJSON(vars.CI_RUNNER_LABELS || ...)" },
@@ -23,10 +24,10 @@
     "STACK_GATE": { "example": "", "required": false, "note": "README injection anchor: replaced by variants/<stack>/gate.md, removed for -Stack generic" }
   },
   "stacks": {
-    "generic": { "display": "generic", "buildCmd": "<your build command>", "testCmd": "<your test command>", "smokeCmd": "", "job": "" },
-    "dotnet": { "display": ".NET", "buildCmd": "dotnet build", "testCmd": "dotnet test", "smokeCmd": "", "job": "jobs/dotnet.yml" },
-    "typescript": { "display": "TypeScript", "buildCmd": "npm run build", "testCmd": "npm test", "smokeCmd": "", "job": "jobs/frontend.yml" },
-    "go": { "display": "Go", "buildCmd": "go build ./...", "testCmd": "go test ./...", "smokeCmd": "", "job": "jobs/go.yml" }
+    "generic": { "display": "generic", "buildCmd": "<your build command>", "testCmd": "<your test command>", "gateBuildCmd": "", "smokeCmd": "", "job": "" },
+    "dotnet": { "display": ".NET", "buildCmd": "dotnet build", "testCmd": "dotnet test", "gateBuildCmd": "dotnet build -warnaserror", "smokeCmd": "", "job": "jobs/dotnet.yml" },
+    "typescript": { "display": "TypeScript", "buildCmd": "npm run build", "testCmd": "npm test", "gateBuildCmd": "", "smokeCmd": "", "job": "jobs/frontend.yml" },
+    "go": { "display": "Go", "buildCmd": "go build ./...", "testCmd": "go test ./...", "gateBuildCmd": "", "smokeCmd": "", "job": "jobs/go.yml" }
   },
   "roots": {
     "core": "template",
@@ -44,6 +45,7 @@
     "template/.codebuddy/rules/coding-conventions/RULE.mdc",
     "template/.codebuddy/rules/rtm-traceability/RULE.mdc",
     "template/.codebuddy/rules/quality-gate/RULE.mdc",
+    "template/.codebuddy/rules/option-based-input/RULE.mdc",
     "template/docs/README.md",
     "template/docs/01-需求规格说明书.md",
     "template/docs/02-总体设计.md",
@@ -61,11 +63,14 @@
     "template/tools/build-kanban.ps1",
     "template/tools/serve-kanban.ps1",
     "template/tools/kanban-check.ps1",
+    "template/tools/verify.ps1",
     "variants/dotnet/Directory.Build.props",
     "variants/dotnet/Directory.Build.targets",
     "variants/dotnet/global.json",
     "variants/dotnet/jobs/dotnet.yml",
     "variants/dotnet/.codebuddy/rules/nullable-gate/RULE.mdc",
+    "variants/dotnet/.codebuddy/rules/modern-csharp-syntax/RULE.mdc",
+    "variants/dotnet/tools/assets.ps1",
     "variants/dotnet/README.md",
     "variants/dotnet/gate.md",
     "variants/typescript/README.md",

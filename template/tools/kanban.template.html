@@ -256,6 +256,11 @@ tr.flash>td,.card.flash,.qid.flash{animation:flashbg 1.3s ease-out 2;}
 <div class="stickybar" id="stickybar">
 <div class="tabs" id="tabs" role="tablist" aria-label="看板维度">
 <button class="tab active" id="tab-overview" role="tab" aria-selected="true" aria-controls="p-overview" data-tab="overview">工作包</button>
+<!-- 需求 sits next to 工作包 on purpose: the two answer the same question from opposite sides ("what are we
+     building" / "what was asked for"). Before this panel the register had no entry point of its own - it was
+     readable one requirement at a time, inside a package card, so "which requirements are still open" could
+     not be answered from the board at all (CONTRIBUTING.md section 10, item 14). -->
+<button class="tab" id="tab-reqs" role="tab" aria-selected="false" aria-controls="p-reqs" data-tab="reqs">需求</button>
 <button class="tab" id="tab-next" role="tab" aria-selected="false" aria-controls="p-next" data-tab="next">待办 / 下一步</button>
 <button class="tab" id="tab-stages" role="tab" aria-selected="false" aria-controls="p-stages" data-tab="stages">阶段</button>
 <button class="tab" id="tab-scope" role="tab" aria-selected="false" aria-controls="p-scope" data-tab="scope">范围与优先级</button>
@@ -283,6 +288,9 @@ tr.flash>td,.card.flash,.qid.flash{animation:flashbg 1.3s ease-out 2;}
 <div class="panel" id="p-overview" role="tabpanel" aria-labelledby="tab-overview">
 <div class="kpis" id="kpis"></div>
 <div class="board" id="board"></div>
+</div>
+<div class="panel hidden" id="p-reqs" role="tabpanel" aria-labelledby="tab-reqs">
+<div class="section"><h2>需求（docs/需求跟踪矩阵.md 追溯表 —— 点编号在该文档定位它）</h2><div class="tbl-wrap" id="req-rows"></div></div>
 </div>
 <div class="panel hidden" id="p-stages" role="tabpanel" aria-labelledby="tab-stages">
 <div class="section"><h2>阶段（docs/项目时间线.md §2）</h2><div class="tbl-wrap" id="stage-rows"></div></div>
@@ -649,7 +657,7 @@ function render(){
    cheaper than tracking dirty panels - and it cannot leave a stale panel behind. */
 function renderEverything(){
   renderStages();renderKpis();renderBoard();renderStagesPanel();renderTimelinePanel();renderGatesPanel();renderDecisions();renderDocMap();
-  renderHealthPanel();renderNextPanel();renderScopePanel();updateHits();
+  renderHealthPanel();renderNextPanel();renderScopePanel();renderReqPanel();updateHits();
   /* The notice bar is rendered HERE rather than at every action that can change it: it is a pure view of
      (overrides, history), so rendering it with everything else means a live sync that invalidates an
      override updates it as well, and a call site can no longer be forgotten. */
@@ -702,7 +710,9 @@ function renderBoard(){
       if(p.reqs&&p.reqs.length){
         html+='<div class="reqs">';
         p.reqs.forEach(function(r){
-          html+='<div class="req"><span class="dot '+colOf(r.status)+'"></span><span><span class="rid">'+esc(r.id)+'</span> '+esc(r.title)+'</span></div>';
+          /* The requirement id in a card is the reverse link into the 需求 panel: the card says where a
+             requirement is delivered, the register row says everything else about it. */
+          html+='<div class="req"><span class="dot '+colOf(r.status)+'"></span><span><span class="rid" data-goto="reqs:req:'+esc(r.id)+'" title="在「需求」页签定位该条">'+esc(r.id)+'</span> '+esc(r.title)+'</span></div>';
         });
         html+='</div>';
       }
@@ -767,10 +777,37 @@ function kpiTile(k,v,tail,goto){
     +'><div class="k">'+esc(k)+'</div><div class="v">'+esc(String(v))+(tail?(' <small>'+esc(tail)+'</small>'):'')+'</div></div>';
 }
 function allReqs(){
-  var out=[];
-  (DATA.packages||[]).forEach(function(p){(p.reqs||[]).forEach(function(r){out.push(r);});});
-  (DATA.unassigned||[]).forEach(function(r){out.push(r);});
-  return out;
+  /* The ONE list the model carries, in document order. The body this replaces concatenated every package's
+     reqs and then the unassigned ones - which is not a list of requirements: a requirement mapped to TWO
+     packages was counted once per package, so the summary tile said more than the register holds. The model
+     therefore carries the register itself (kanban-data.ps1) and every count reads THAT field - the board
+     gate asserts this, because a view-side re-derivation is invisible in a screenshot. */
+  return (DATA.requirements||[]).slice();
+}
+/* The requirement register gets a panel of its own because it had no entry point: it was readable one
+   requirement at a time, inside a package card. Every way OUT of a row is a way there - the document that
+   holds it, the package that delivers it, the stage it belongs to - and a row mapped to no package says so
+   instead of vanishing (that fact is accounted for under 决议, where the unassigned list lives). */
+function renderReqPanel(){
+  var host=document.getElementById('req-rows');if(!host)return;
+  var reqs=allReqs();
+  var rtm=String(DATA.rtm||'');
+  var rows=reqs.map(function(r){
+    var id=rtm
+      ? ('<span data-goto="docs:doc:'+esc(rtm)+'" title="在「文档」页签定位那份需求表">'+esc(r.id)+'</span>')
+      : esc(r.id);
+    var pkgs=(r.pkgIds&&r.pkgIds.length)
+      ? r.pkgIds.map(function(p){return '<b data-goto="overview:pkg:'+esc(p)+'" title="在「工作包」页签定位该卡片">'+esc(p)+'</b>';}).join('、')
+      : '<span class="dim">未映射</span>';
+    var stage=r.stage
+      ? ('<span data-goto="stages:stage:'+esc(r.stage)+'" title="在「阶段」页签定位该阶段">'+esc(r.stage)+'</span>')
+      : '';
+    return [id, mdInline(r.title), pkgs, stage,
+            '<span class="dot '+colOf(r.status)+'"></span> '+esc(r.status), mdInline(r.evidence||''), mdInline(r.note||'')];
+  });
+  host.innerHTML=rows.length
+    ? table(['需求 ID','需求','工作包','阶段','状态','验收 / 证据','备注'],rows,reqs.map(function(r){return 'req:'+r.id;}))
+    : '<div class="empty">未找到需求跟踪矩阵，或该文档还没有需求条目。</div>';
 }
 /* A decision is "resolved" when its status carries the tick - the same reading rule as CONTRIBUTING 9.3,
    so the count and the lane can never disagree. */
@@ -785,11 +822,11 @@ function renderKpis(){
   var rDone=reqs.filter(function(r){return colOf(r.status)==='done';}).length;
   var open=openDecisions().length;
   var out='';
-  /* Every tile whose number belongs to ONE panel carries that panel's jump target. 需求 is left plain on
-     purpose: requirements live inside the package cards, so no single panel owns that count and a jump
-     would have nowhere honest to land. */
+  /* Every tile whose number belongs to ONE panel carries that panel's jump target - including 需求, which
+     only became jumpable once the register got a panel of its own (before that the count had nowhere honest
+     to land, and the dimension had no entry point at all). */
   out+=kpiTile('工作包', pDone+' / '+pkgs.length, pClosed?('+'+pClosed+' 已取消'):'', 'overview:');
-  out+=kpiTile('需求', rDone+' / '+reqs.length, '');
+  out+=kpiTile('需求', rDone+' / '+reqs.length, '', 'reqs:');
   out+=kpiTile('待决事项', open, ((DATA.blockers||[]).length-open)+' 已决议', 'decisions:');
   out+=kpiTile('未映射需求', (DATA.unassigned||[]).length, '', 'decisions:');
   out+=kpiTile('时间线条目', (DATA.timeline||[]).length, '', 'timeline:');
@@ -1354,7 +1391,10 @@ applyTheme(themeNow());
    Tabs only toggle visibility: every panel is already rendered, so switching is instant. The hash carries
    "dimension" or "dimension~document", which is what makes a view - or a single document - linkable and
    Back / Forward work. */
-var TAB_NAMES=['overview','next','stages','scope','docs','timeline','gates','decisions','health'];
+/* This list IS the set of switchable dimensions: selectTab() resolves an unknown name to 'overview', so a tab
+   missing HERE is a tab that silently does nothing (its panel never loses `hidden`) - and nothing on screen
+   says so. That is why the board gate now asserts this list against the artifact's own tab set, both ways. */
+var TAB_NAMES=['overview','reqs','next','stages','scope','docs','timeline','gates','decisions','health'];
 var activeTab='overview';
 function parseHash(){
   var h=location.hash.replace(/^#/,'');

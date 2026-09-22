@@ -1,0 +1,55 @@
+---
+description: 生成 / 修改 C# 代码一律按本仓项目设置采用最新语法（net8.0 + LangVersion=latest → C# 12、ImplicitUsings=enable、Nullable=disable）。涉及任何 .cs 的新增或改写时遵循。
+alwaysApply: true
+enabled: true
+updatedAt: 2026-09-22T00:00:00.000Z
+provider:
+---
+
+# 最新 C# 语法（按项目设置，L0 预防层）
+
+**规则一句话**：写 `.cs` 时以项目**实际生效的设置**为准，能用的新语法就用；不确定版本上限时**先读配置文件**，不要凭印象生成。
+
+## 1. 项目设置（真值来源，禁止臆断）
+
+| 来源 | 设置 |
+|---|---|
+| `Directory.Build.props` | `TargetFramework=net8.0`、`LangVersion=latest`、`ImplicitUsings=enable`、`Nullable=disable`、`WarningsAsErrors=CS8632` |
+| `global.json` | SDK `8.0.400`（`rollForward=latestFeature`） |
+| 各 `csproj` | 只声明 TFM / `ImplicitUsings`，**不覆盖** `LangVersion` / `Nullable`（`Directory.Build.targets` 有构建期断言） |
+
+⇒ `latest` 在 SDK 8.0.400 上解析为 **C# 12**：C# 12 及以前全部特性可用，**C# 13+ 不可用**。
+
+**C# 13+ 不要在代码里出现**（写了直接编译失败）：`field` 关键字、`params` 集合、`\e` 转义、`System.Threading.Lock`、partial 属性 / 索引器、ref struct 实现接口、迭代器内 `ref` / `unsafe`、对象初始化器隐式索引访问。
+需要 C# 13 只能先升 SDK（改 `global.json` 并同步 `Directory.Build.props`）——那是工具链变更，走显式评审，**不要**靠局部硬写版本来绕。
+
+## 2. 必用（新代码优先）
+
+- **命名空间 / 类型**：文件级 `namespace X;`；仅本文件可见的类型用 `file`（`file static class Helpers`）。
+- **集合表达式**：`List<int> xs = [];`、`int[] ys = [1, 2, 3];`、`return [];`、嵌套 `[[1, 2], [3]]`；替代 `new List<T>()`、`new T[0]`、`new Dictionary<K, V>()`。（显式泛型需要时 `Array.Empty<T>()` 仍可。）
+- **初始化**：目标类型 `new()`；字典索引器初始化 `new() { [k1] = v1, [k2] = v2 }`。
+- **分支**：有返回值一律 **switch 表达式**（`var r = x switch { A => ..., _ => ... };`），用模式匹配 / 属性模式替代连续 `if`；语句型 switch 保留 `default:` 兜底。
+- **类型与成员**：不可变数据载体用 `record`（含主构造器）；依赖注入可用主构造器 `class Svc(IRepo r)`；表达式体成员 `public int Total => A + B;`；`required` 标记必填；`nameof` 替代魔法字符串。
+- **字符串**：多行报文 / JSON 优先 raw string literal `"""..."""`（C# 11）；插值 `$"{a}"` 优于 `+` 拼接。
+- **空处理**：`??` / `??=` / `?.` 链式；**返回空集合而非 `null`**。
+- **协议 / 热路径**：优先 `ReadOnlySpan<byte>`、`stackalloc`、内联数组等零分配写法，配合 `ref readonly` 参数。
+
+## 3. 例外（不得为「更现代」改动语义）
+
+- **反射映射实体必须保持可变 `class` + 无参构造 + 可写 `set`**（被映射特性标注的 POCO）：不得改成 `record` / `init` / `required`，否则映射通道失效。
+- **引用类型可空注解 `T?` 一律禁止**（`string?`、`JToken?` …）：`CS8632` 被设为**编译错误**；`Nullable=disable` 下不存在"更现代的空安全写法"；值类型可空（`int?`、`enum?`）不受限。
+- **与报文布局 / 内存布局对齐的 `struct`**：保持显式字段与既有布局，不因新语法改写。
+- **`ImplicitUsings=enable`**：不手写 `using System;` / `System.Collections.Generic;` 等隐式项；非隐式命名空间仍须显式 `using`。
+
+## 4. 与既有代码的关系（防噪音 diff）
+
+- 新语法只落**新代码与改动行**；**不顺带重写**未触碰的既有实现。
+- 缩进（部分文件用制表符）、命名、注释风格**沿用所在文件**。
+- 大改一律**定向编辑**，禁止整文件重写。
+
+## 5. 保障层级
+
+- **硬保障**：SDK 8.0.400 + `LangVersion=latest` 使"用了更高版本语法"直接**编译失败**；`Nullable=disable` 与 `CS8632` 为错误由 `Directory.Build.props` 强制；`tools/verify.ps1` 的构建判据（`{{BUILD_GATE_CMD}}`）把"零警告"变成可判定的退出码。
+- **软保障**：本规则的"优先新语法"部分**没有机械判据、不阻断任何动作**——不要当作门禁叙述。
+
+> 质量门禁见 `CONTRIBUTING.md` §6；可空红线的 AI 侧条目见本变体的 `.codebuddy/rules/nullable-gate/`。

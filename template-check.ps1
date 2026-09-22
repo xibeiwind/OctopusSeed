@@ -219,13 +219,23 @@ if ($Smoke) {
                 }
 
                 # every shipped PowerShell tool must at least parse - a gate that cannot run is
-                # indistinguishable from a gate that passed (CONTRIBUTING.md section 10, item 12)
-                foreach ($tool in @('governance-check.ps1', 'claim.ps1', 'metrics.ps1', 'kanban-data.ps1', 'kanban-check.ps1')) {
-                    $toolPath = Join-Path $tmp "tools\$tool"
-                    if (-not (Test-Path -LiteralPath $toolPath)) { Finding 'smoke' "$stack : tools/$tool missing"; continue }
-                    $parseErrors = $null
-                    [void][System.Management.Automation.Language.Parser]::ParseFile($toolPath, [ref]$null, [ref]$parseErrors)
-                    if ($parseErrors.Count -gt 0) { Finding 'smoke' "$stack : tools/$tool does not parse: $($parseErrors[0].Message)" }
+                # indistinguishable from a gate that passed (CONTRIBUTING.md section 10, item 12).
+                # Enumerated, not listed: a tool added to tools/ (by the core or by a variant) is covered
+                # the moment it ships, instead of silently escaping the check until someone edits the list.
+                $toolDir = Join-Path $tmp 'tools'
+                if (-not (Test-Path -LiteralPath $toolDir)) {
+                    Finding 'smoke' "$stack : tools/ missing after generation"
+                } else {
+                    $shippedTools = @(Get-ChildItem -LiteralPath $toolDir -Filter '*.ps1' -File | Sort-Object Name)
+                    if ($shippedTools.Count -eq 0) { Finding 'smoke' "$stack : no PowerShell tool was generated" }
+                    foreach ($tool in $shippedTools) {
+                        $parseErrors = $null
+                        [void][System.Management.Automation.Language.Parser]::ParseFile($tool.FullName, [ref]$null, [ref]$parseErrors)
+                        if ($parseErrors.Count -gt 0) { Finding 'smoke' "$stack : tools/$($tool.Name) does not parse: $($parseErrors[0].Message)" }
+                    }
+                    # The judgement entry point is the one criterion carrier whose absence would be silent:
+                    # a repo without tools/verify.ps1 still builds clean, so it is asserted explicitly.
+                    if (-not (Test-Path -LiteralPath (Join-Path $toolDir 'verify.ps1'))) { Finding 'smoke' "$stack : tools/verify.ps1 missing" }
                 }
 
                 # the metrics assertion must actually be wired into the CI job
