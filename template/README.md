@@ -6,7 +6,7 @@
 
 1. **当前阶段执行计划**的 `§3 工作包全景` 与 `§4 当前进度与下一步`（见 `docs/` 下最新的 `NN-Px执行计划.md`）；
 2. 该工作包对应的**能力专题** `docs/NN-Px-y-<主题>设计.md`；
-3. `CONTRIBUTING.md` §9（推进机制）· §5（文档同步）· §6（质量门禁）。
+3. `CONTRIBUTING.md` §9（推进机制）· §5（文档同步）· §6 与 §6.1（质量门禁与**本地判据单命令入口**）· §12（**决策请求怎么做**）。
 
 > 该入口为**人与 AI 共用**；AI 侧由 `.codebuddy/rules/` 强制同一套路。
 
@@ -18,7 +18,9 @@
 | 预防层 | `.codebuddy/rules/*` | 把规范内建为 AI 默认行为 |
 | 强制层 | `.githooks/commit-msg` | 提交信息必须带 `[Px-y]` 前缀，否则本地拒绝 |
 | 强制层 | `.github/workflows/verify-clean-build.yml` | 变更范围判定 + 构建测试 + 规范文档线 |
-| 强制层 | `tools/governance-check.ps1` | 提交前缀 / 文档引用 / 编号登记三项校验 |
+| 强制层 | `tools/governance-check.ps1` | **六项**校验：提交前缀 / 文档引用 / 编号登记 / 分支名编号 / 未定项归属 / 热点文档大删（见 `CONTRIBUTING.md` §6） |
+| 工具 | `tools/verify.ps1` | **本地判据单命令入口**（§6.1 六条）：全部跑完再汇总；载体缺失或占位命令打印 `UNGUARDED`——**不是通过** |
+| 工具 | `assets.ps1`（**由栈变体提供**，落在 `tools/` 下） | **存量台账**（只读，非判据）：零消费者的工程必须有台账授权，否则一直报 finding |
 | 骨架 | `docs/README.md` · `docs/模板/*` | 文档地图 + 阶段计划 / 能力专题 / 收口评审模板 |
 | 工具 | `tools/kanban*.ps1` · `tools/kanban.template.html` | 只读派生看板（可选，删则同步删 `CONTRIBUTING.md` §10） |
 
