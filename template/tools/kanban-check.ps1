@@ -223,7 +223,7 @@ $mustExist = @(
     @{ p = 'function renderNextPanel\(\)\{';         label = 'the next panel is rendered' },
     @{ p = 'function readyPkgs\(\)\{';               label = 'what can start now is derived from the dependency column' },
     @{ p = 'var STALE_DAYS=';                        label = 'the freshness threshold is a named constant, not a magic number' },
-    @{ p = "var TAB_NAMES=\['overview','next','stages','scope','docs','timeline','gates','decisions','health'\]"; label = 'the tab set and order match the baseline (the capability tab is omitted: this repo has no capability matrix)' },
+    @{ p = 'var TAB_NAMES=\[';                       label = 'the tab set has a single named source (its CONTENT is compared with the markup below, not spelled out here)' },
     @{ p = 'aria-controls="p-overview"';             label = 'the first tab points at the board panel' },
     @{ p = 'id="p-scope"';                           label = 'the scope panel exists' },
     @{ p = 'id="quadrants"';                         label = 'the quadrant view exists' },
@@ -504,6 +504,150 @@ if (-not $SkipServe) {
     }
 }
 
+# ------------------------------------------------- every register entry is visible (I16 / I18)
+# Why: "each entry of a register reaches the board" had no criterion of its own, and the blind spot is real -
+# a BLANK LINE inside a pipe table silently swallows rows, and a missing row is not a fault anywhere on the
+# page; it is simply absent. The two registers fail in DIFFERENT ways, which is worth stating precisely
+# because the fix a reader would reach for depends on it:
+#   * the gap register is read table by table, so the first row of the block AFTER the gap is taken for a
+#     header and dropped;
+#   * the traceability register is read as ONE slice (from its header to the next heading), so a blank line
+#     ENDS the read and every row below it is lost, not just one.
+# Both are therefore read here INDEPENDENTLY, with a line regex - never through the shared parser: measuring
+# a parser with itself can never fire. Each register is resolved by SHAPE (the widest I-headed / R-headed
+# table in docs/), never by its Chinese file name: the tools are ASCII-only and a renamed document must not
+# blind the check.
+#
+# A missing register, or an artifact whose model reports an error, is NOT a finding: a freshly generated repo
+# has skeletons with no rows yet, and the board degrades to an empty panel on purpose (CONTRIBUTING section
+# 10, item 2). It is printed as a notice instead, so "not judged" can never be read as "judged and clean".
+$docsDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'docs'
+
+$embedded = $null
+$dataMatch = [regex]::Match($html, '^var DATA = (.*);$', 'Multiline')
+if (-not $dataMatch.Success) {
+    Add-Finding 'coverage: the artifact carries no embedded model (var DATA = ...), so nothing can be compared'
+} else {
+    try { $embedded = $dataMatch.Groups[1].Value | ConvertFrom-Json }
+    catch { Add-Finding ("coverage: the embedded model could not be parsed ({0})" -f $_.Exception.Message) }
+}
+$modelUsable = ($embedded -and -not $embedded.error)
+
+function Get-RegisterIds {
+    param([string]$HeadPattern, [int]$MinCols)
+    $best = $null
+    $bestIds = @()
+    foreach ($f in @(Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $ids = @()
+        foreach ($ln in [System.IO.File]::ReadAllLines($f.FullName, [System.Text.Encoding]::UTF8)) {
+            $m = [regex]::Match($ln, $HeadPattern)
+            if (-not $m.Success) { continue }
+            # Width tells the tables apart: a narrower table with I-heads somewhere else is not the register.
+            $cols = @($ln.Trim().Trim('|') -split '\|').Count
+            if ($cols -ge $MinCols) { $ids += $m.Groups[1].Value }
+        }
+        if ($ids.Count -gt $bestIds.Count) { $best = $f; $bestIds = $ids }
+    }
+    return @{ File = $best; Ids = $bestIds }
+}
+
+# --- gap register: I-headed rows, 6 columns = registered, 4 = closed / archived
+$ledger = Get-RegisterIds -HeadPattern '^\s*\|\s*(I\d+)\s*\|' -MinCols 4
+$ledgerFile = $ledger.File
+$ledgerIds = @($ledger.Ids)
+$modelIds = @()
+if ($embedded -and $embedded.scope) {
+    $modelIds = @(@($embedded.scope.items) + @($embedded.scope.closed) | Where-Object { $_ } | ForEach-Object { [string]$_.id })
+}
+if (-not $ledgerFile) {
+    Write-Host '  gap register : not found yet - coverage NOT judged (fill docs/ before relying on this)'
+} elseif (-not $modelUsable) {
+    Write-Host ('  gap register : {0} has {1} row(s) but the board model is not usable - coverage NOT judged' -f $ledgerFile.Name, $ledgerIds.Count)
+} else {
+    foreach ($id in $ledgerIds) {
+        if ($modelIds -notcontains $id) {
+            Add-Finding ("register: {0} heads a row of {1} but is NOT in the board model - a blank line inside the table makes the parser drop a block's first row" -f $id, $ledgerFile.Name)
+        }
+    }
+    foreach ($id in $modelIds) {
+        if ($ledgerIds -notcontains $id) {
+            Add-Finding ("register: the model carries {0} but {1} has no such row (stale artifact?)" -f $id, $ledgerFile.Name)
+        }
+    }
+}
+
+# --- traceability register: R-headed rows in the WIDE table (the register, not a narrow R-table elsewhere)
+$rtm = Get-RegisterIds -HeadPattern '^\s*\|\s*(R-[A-Za-z0-9-]+)\s*\|' -MinCols 7
+$rtmFile = $rtm.File
+$rtmIds = @($rtm.Ids)
+$modelReqIds = @()
+if ($modelUsable) {
+    $modelReqs = @($embedded.requirements | Where-Object { $_ })
+    $modelReqIds = @($modelReqs | ForEach-Object { [string]$_.id })
+    $boardPkgIds = @($embedded.packages | Where-Object { $_ } | ForEach-Object { [string]$_.id })
+    $boardStageIds = @($embedded.stages | Where-Object { $_ } | ForEach-Object { [string]$_.stage })
+
+    foreach ($id in $rtmIds) {
+        if ($modelReqIds -notcontains $id) {
+            Add-Finding ("requirements: {0} heads a row of {1} but is NOT in the board model - a blank line inside the table ENDS the read there, so every row below it is lost" -f $id, $rtmFile.Name)
+        }
+    }
+    foreach ($id in $modelReqIds) {
+        if ($rtmIds -notcontains $id) {
+            Add-Finding ("requirements: the model carries {0} but {1} has no such row (stale artifact?)" -f $id, $rtmFile.Name)
+        }
+    }
+    # Every way OUT of a requirement row has to land somewhere: a package that is not on the board is a link
+    # into empty space, and a stage the stage table does not carry is a jump to nothing.
+    foreach ($r in $modelReqs) {
+        foreach ($pkgRef in @($r.pkgIds)) {
+            if ($boardPkgIds -notcontains $pkgRef) {
+                Add-Finding ("requirements: {0} names package {1}, which is not on the board - its row would link nowhere" -f $r.id, $pkgRef)
+            }
+        }
+        if ($r.stage -and ($boardStageIds -notcontains $r.stage)) {
+            Add-Finding ("requirements: {0} names stage {1}, which the stage table does not carry" -f $r.id, $r.stage)
+        }
+    }
+    # The tile and the panel have to count the SAME thing, so both read the model's own list: a view that
+    # concatenates each package's reqs counts requirement-package PAIRS, which is not a requirement count.
+    if (-not [regex]::IsMatch($html, 'function allReqs\(\)\{[^}]*DATA\.requirements')) {
+        Add-Finding 'requirements: the board derives its requirement list instead of reading the model field - the tile would count requirement-package pairs'
+    }
+}
+if (-not $rtmFile) {
+    Write-Host '  requirements : no wide traceability table found yet - coverage NOT judged'
+}
+
+# --- every tab has a panel and every panel has a tab: an entry point that opens nothing and a panel no tab
+# can reach are the two halves of one failure, and neither is visible in a screenshot of the other.
+$tabSet = @([regex]::Matches($html, 'data-tab="([a-z]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$panelSet = @([regex]::Matches($html, 'id="p-([a-z]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+foreach ($t in $tabSet) {
+    if ($panelSet -notcontains $t) { Add-Finding ("tabs: '{0}' is a tab with no panel (p-{0}) - an entry point that opens nothing" -f $t) }
+}
+foreach ($p in $panelSet) {
+    if ($tabSet -notcontains $p) { Add-Finding ("tabs: the panel p-{0} has no tab - nothing can reach it" -f $p) }
+}
+
+# The tab list in the SCRIPT has to know every tab the markup offers. selectTab() resolves an unknown name to
+# 'overview', so a tab missing from that list is a tab that does nothing at all - and no screenshot of the
+# working tabs can show it. This assertion exists because that defect happened while the tab/panel comparison
+# above was green: the button and the panel were both there, only the list was stale.
+$nameList = @()
+$nm = [regex]::Match($html, 'var TAB_NAMES=\[([^\]]*)\]')
+if (-not $nm.Success) {
+    Add-Finding 'tabs: the script carries no TAB_NAMES list, so a new tab cannot be resolved by selectTab()'
+} else {
+    $nameList = @([regex]::Matches($nm.Groups[1].Value, "'([a-z]+)'") | ForEach-Object { $_.Groups[1].Value })
+    foreach ($t in $tabSet) {
+        if ($nameList -notcontains $t) { Add-Finding ("tabs: '{0}' is a tab but missing from TAB_NAMES - selecting it falls back to the board and the panel never opens" -f $t) }
+    }
+    foreach ($n in $nameList) {
+        if ($tabSet -notcontains $n) { Add-Finding ("tabs: TAB_NAMES lists '{0}' but no tab carries it - a dead entry the reader can never reach" -f $n) }
+    }
+}
+
 # -------------------------------------------------------------------- report
 Write-Host ('kanban-check: {0}' -f (Split-Path -Leaf $Artifact))
 if ($light -and $dark) {
@@ -530,10 +674,12 @@ Write-Host '      paginates it is outside what a file can show.'
 Write-Host '    - the jump itself: the gate sees the target exists and carries a key; whether the pulse reads'
 Write-Host '      well, and how far the browser scrolls, is a layout question, not a file one.'
 Write-Host '    - the lane edge (--col-border) and the header hairline (--header-line): decorative, no text sits on them.'
+Write-Host ('  ledger coverage: {0} entries in {1}, {2} id(s) in the board model' -f $ledgerIds.Count, $(if ($ledgerFile) { $ledgerFile.Name } else { '(no register found)' }), $modelIds.Count)
+Write-Host ('  requirement coverage: {0} row(s) in {1}, {2} in the board model; tabs {3} / panels {4}' -f $rtmIds.Count, $(if ($rtmFile) { $rtmFile.Name } else { '(no register found)' }), $modelReqIds.Count, $tabSet.Count, $panelSet.Count)
 Write-Host ('  live check: {0}' -f $(if ($SkipServe) { 'skipped (-SkipServe)' } elseif ($serveRan) { 'ran - /data, /, /docs/<name> and a traversal attempt' } else { 'did NOT run (the server could not be started here)' }))
 Write-Host ''
 if ($script:Findings.Count -eq 0) {
-    Write-Host ('KANBAN_CHECK_OK ({0} contrast pairs, {1} wiring assertions)' -f $rows.Count, $mustExist.Count)
+    Write-Host ('KANBAN_CHECK_OK ({0} contrast pairs, {1} wiring assertions, {2} register entries, {3} requirements)' -f $rows.Count, $mustExist.Count, $ledgerIds.Count, $rtmIds.Count)
     exit 0
 }
 Write-Host ('KANBAN_CHECK_FAIL ({0} findings)' -f $script:Findings.Count)

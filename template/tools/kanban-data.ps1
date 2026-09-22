@@ -166,7 +166,10 @@ function Get-NextStep {
         $cps = [int[]][char[]][string]$s.status
         if ($cps -contains 0xD83D -and $cps -contains 0xDD04) { $planLeaf = (($s.plan -replace '`', '')).Trim(); break }   # U+1F504
     }
-    if (-not $planLeaf -and @($Stages).Count -gt 0) { $planLeaf = (((@($Stages))[0].plan -replace '`', '')).Trim() }
+    # No stage is in progress (between two stages, or one closed without its successor registered): the NEWEST
+    # stage is the one whose plan carries the last word. The earliest would quote a stage closed long ago -
+    # and with every stage plan now loaded, that fallback is reachable in exactly that window.
+    if (-not $planLeaf -and @($Stages).Count -gt 0) { $planLeaf = (((@($Stages))[-1].plan -replace '`', '')).Trim() }
     if (-not $planLeaf) { return $null }
     $file = Get-ChildItem -LiteralPath $DocsDir -Filter '*.md' -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -eq $planLeaf } | Select-Object -First 1
@@ -247,6 +250,26 @@ function Get-ScopeMap {
     return [ordered]@{ doc = $file.Name; items = $items; quadrants = $quadrants; closed = $closed }
 }
 
+# "This document is a plan" is decided by the SHAPE of its section 3 - a table whose first data row carries a
+# package id - never by a file name. Why: a design document shares the plan's numeric prefix
+# (03-P0-1-<design> sits next to 03-P0<plan>) and a requirements spec naturally lists ids of its own, so
+# "the first file that matches" silently picks the wrong document and every view downstream reads zeros.
+function Test-PackagePlan {
+    param([string]$Path)
+    $lines = @(Get-Content -LiteralPath $Path -Encoding UTF8 -ErrorAction SilentlyContinue)
+    if ($lines.Count -eq 0) { return $false }
+    $sec = @()
+    $inside = $false
+    foreach ($l in $lines) {
+        if ($l -match '^##\s*3\.') { $inside = $true; continue }
+        if ($inside -and $l -match '^##\s*4\.') { break }
+        if ($inside) { $sec += $l }
+    }
+    $t = Parse-Table $sec
+    if ($t.Rows.Count -eq 0) { return $false }
+    return ((($t.Rows[0][0] -replace '\*', '') -replace '`', '').Trim() -match '^P\d+-\d+$')
+}
+
 # Build the board model JSON from the governance docs.
 # Positional column indices follow the stable table layout of the docs:
 #   plan section 3 : | 包 | 内容 | 依赖 | 状态 |
@@ -258,66 +281,80 @@ function Get-KanbanJson {
     if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent $PSScriptRoot }
     $resolved = Resolve-Path -LiteralPath $RepoRoot -ErrorAction SilentlyContinue
     if (-not $resolved) {
-        return (@{ error = 'repo root not found'; generatedAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); packages = @(); blockers = @(); unassigned = @(); timeline = @(); stages = @(); docmap = @(); nextstep = $null; scope = $null } | ConvertTo-Json -Depth 3 -Compress)
+        return (@{ error = 'repo root not found'; generatedAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); packages = @(); blockers = @(); unassigned = @(); requirements = @(); rtm = ''; timeline = @(); stages = @(); docmap = @(); nextstep = $null; scope = @{ doc = ''; items = @(); quadrants = @(); closed = @() }; sources = @(); repoUrl = '' } | ConvertTo-Json -Depth 3 -Compress)
     }
     $RepoRoot = $resolved.Path
     $docsDir  = Join-Path $RepoRoot 'docs'
 
-    # Resolve the two source docs by ASCII-only patterns (never hardcode Chinese filenames).
-    $planFile = Get-ChildItem -LiteralPath $docsDir -Filter '03-*.md' -File -ErrorAction SilentlyContinue |
-        Select-Object -First 1
+    # Resolve every source doc by SHAPE, never by "the first file that matches" (see Test-PackagePlan).
+    #
+    # EVERY stage plan is read, not just the newest one. Why: the board's question is "where is the project",
+    # and with a single plan loaded the older stages' packages are absent from the model - so their
+    # requirements sit on no card, are not listed as unmapped either, and a coverage check comparing the RTM
+    # with the board would report every one of them as a link into empty space. The candidates are sorted so
+    # the choice is deterministic rather than filesystem-order dependent.
+    $mdFiles = @(Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+    $planFiles = @()
+    foreach ($f in $mdFiles) { if (Test-PackagePlan -Path $f.FullName) { $planFiles += $f } }
     $rtmFile = $null
-    foreach ($f in (Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
+    foreach ($f in $mdFiles) {
         $hit = Get-Content -LiteralPath $f.FullName -Encoding UTF8 -ErrorAction SilentlyContinue |
-            Where-Object { $_ -match '^\|\s*R-\d' }
+            Where-Object { $_ -match '^\|\s*R-[A-Za-z0-9-]+\s*\|' }
         if ($hit) { $rtmFile = $f; break }
     }
     # The timeline doc is resolved by CONTENT as well: the file that carries a table whose first cell is
     # an ISO date. Section headings are Chinese and are never matched as literals.
     $tlFile = $null
-    foreach ($f in (Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
+    foreach ($f in $mdFiles) {
         $hit = Get-Content -LiteralPath $f.FullName -Encoding UTF8 -ErrorAction SilentlyContinue |
             Where-Object { $_ -match '^\|\s*\d{4}-\d{2}-\d{2}\s*\|' }
         if ($hit) { $tlFile = $f; break }
     }
 
-    $planPath = if ($planFile) { $planFile.FullName } else { '' }
-    $rtmPath  = if ($rtmFile)  { $rtmFile.FullName }  else { '' }
-    $tlPath   = if ($tlFile)   { $tlFile.FullName }   else { '' }
+    # The newest plan (name order) stands for the plan in the source list; all of them are read below.
+    $planPath = if ($planFiles.Count -gt 0) { $planFiles[-1].FullName } else { '' }
+    $rtmPath  = if ($rtmFile) { $rtmFile.FullName } else { '' }
+    $tlPath   = if ($tlFile)  { $tlFile.FullName }  else { '' }
 
-    if (-not $planPath -or -not (Test-Path -LiteralPath $planPath)) {
-        return (@{ error = 'plan doc not found'; generatedAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); packages = @(); blockers = @(); unassigned = @(); timeline = @(); stages = @(); docmap = @(); nextstep = $null; scope = $null } | ConvertTo-Json -Depth 3 -Compress)
+    if ($planFiles.Count -eq 0) {
+        return (@{ error = 'plan doc not found'; generatedAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); packages = @(); blockers = @(); unassigned = @(); requirements = @(); rtm = ''; timeline = @(); stages = @(); docmap = @(); nextstep = $null; scope = @{ doc = ''; items = @(); quadrants = @(); closed = @() }; sources = @(); repoUrl = '' } | ConvertTo-Json -Depth 3 -Compress)
     }
     if (-not $rtmPath -or -not (Test-Path -LiteralPath $rtmPath)) {
-        return (@{ error = 'rtm doc not found'; generatedAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); packages = @(); blockers = @(); unassigned = @(); timeline = @(); stages = @(); docmap = @(); nextstep = $null; scope = $null } | ConvertTo-Json -Depth 3 -Compress)
+        return (@{ error = 'rtm doc not found'; generatedAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); packages = @(); blockers = @(); unassigned = @(); requirements = @(); rtm = ''; timeline = @(); stages = @(); docmap = @(); nextstep = $null; scope = @{ doc = ''; items = @(); quadrants = @(); closed = @() }; sources = @(); repoUrl = '' } | ConvertTo-Json -Depth 3 -Compress)
     }
 
-    $planLines = Get-Content -LiteralPath $planPath -Encoding UTF8
     $rtmLines  = @(Get-Content -LiteralPath $rtmPath -Encoding UTF8)
 
-    # plan section 3 (work packages)
-    $in3 = $false; $sec3 = @()
-    foreach ($l in $planLines) {
-        if ($l -match '^##\s*3\.') { $in3 = $true; continue }
-        if ($in3 -and $l -match '^##\s*4\.') { break }
-        if ($in3) { $sec3 += $l }
+    # Each plan is parsed on its OWN and the ROWS are concatenated. Concatenating the section LINES instead
+    # would not work: a blank line ends a pipe block, so the first plan's table would end the parse and every
+    # later plan would be silently dropped.
+    $pkgRows = @()
+    $decRows = @()
+    foreach ($pf in $planFiles) {
+        $planLines = @(Get-Content -LiteralPath $pf.FullName -Encoding UTF8)
+        $in3 = $false; $sec3 = @()
+        foreach ($l in $planLines) {
+            if ($l -match '^##\s*3\.') { $in3 = $true; continue }
+            if ($in3 -and $l -match '^##\s*4\.') { break }
+            if ($in3) { $sec3 += $l }
+        }
+        $pkgRows += @((Parse-Table $sec3).Rows)
+        $in8 = $false; $sec8 = @()
+        foreach ($l in $planLines) {
+            if ($l -match '^##\s*8\.') { $in8 = $true; continue }
+            if ($in8 -and $l -match '^###\s*8\.1') { break }
+            if ($in8) { $sec8 += $l }
+        }
+        $decRows += @((Parse-Table $sec8).Rows)
     }
-    $t3 = Parse-Table $sec3
 
-    # plan section 8 (open decisions / blockers)
-    $in8 = $false; $sec8 = @()
-    foreach ($l in $planLines) {
-        if ($l -match '^##\s*8\.') { $in8 = $true; continue }
-        if ($in8 -and $l -match '^###\s*8\.1') { break }
-        if ($in8) { $sec8 += $l }
-    }
-    $t8 = Parse-Table $sec8
-
-    # RTM table: ASCII-only detection; header sits two lines above the first `| R-N` body row.
+    # RTM table: ASCII-only detection; header sits two lines above the first `| R-N` body row. The id shape is
+    # the WIDE one (R-1 and R-N1 both count) - `R-\d` alone silently missed every non-functional requirement,
+    # and a register whose first row happens to be R-N1 would have been read as "no register at all".
     $rtmSec = @()
     $start = -1
     for ($k = 0; $k -lt $rtmLines.Count; $k++) {
-        if ($rtmLines[$k] -match '^\|\s*R-\d') { $start = $k; break }
+        if ($rtmLines[$k] -match '^\|\s*R-[A-Za-z0-9-]+\s*\|') { $start = $k; break }
     }
     if ($start -ge 2) {
         for ($k = $start - 2; $k -lt $rtmLines.Count; $k++) {
@@ -372,9 +409,9 @@ function Get-KanbanJson {
     $nextstep = Get-NextStep -DocsDir $docsDir -Stages $stages
     $scope = Get-ScopeMap -DocsDir $docsDir
 
-    # build packages (positional columns: 0=id,1=content,2=deps,3=status)
+    # build packages (positional columns: 0=id,1=content,2=deps,3=status), from EVERY stage plan
     $packages = @()
-    foreach ($row in $t3.Rows) {
+    foreach ($row in $pkgRows) {
         if ($row.Count -lt 4) { continue }
         $id      = $row[0] -replace '\*', '' -replace '`', '' -replace '\s', ''
         $content = $row[1]
@@ -429,9 +466,9 @@ function Get-KanbanJson {
     }
     $unassigned = @($reqs | Where-Object { $_.pkgIds.Count -eq 0 })
 
-    # blockers (positional: 0=id,1=question,2=source,3=blocks,4=status)
+    # blockers (positional: 0=id,1=question,2=source,3=blocks,4=status), from EVERY stage plan
     $blockers = @()
-    foreach ($row in $t8.Rows) {
+    foreach ($row in $decRows) {
         if ($row.Count -lt 5) { continue }
         $bid = $row[0] -replace '\*', '' -replace '`', '' -replace '\s', ''
         if (-not $bid) { continue }
@@ -444,24 +481,32 @@ function Get-KanbanJson {
         }
     }
 
-    $srcList = @((Split-Path $planPath -Leaf), (Split-Path $rtmPath -Leaf))
+    # The header names every document the model actually read - with several stage plans that is several
+    # leaves, not one, and a reader who cannot see the list cannot tell a missing plan from an empty one.
+    $srcList = @($planFiles | ForEach-Object { $_.Name })
+    $srcList += (Split-Path $rtmPath -Leaf)
     if ($tlPath) { $srcList += (Split-Path $tlPath -Leaf) }
 
     # Resolved once, not per row: it is a property of the clone, not of a document (see Get-RepoWebUrl).
     $repoWebUrl = Get-RepoWebUrl -RepoRoot $RepoRoot
 
     $model = [ordered]@{
-        generatedAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-        sources     = $srcList
-        packages    = $packages
-        blockers    = $blockers
-        unassigned  = $unassigned
-        timeline    = $timeline
-        stages      = $stages
-        docmap      = $docmap
-        nextstep    = $nextstep
-        scope       = $scope
-        repoUrl     = $repoWebUrl
+        generatedAt  = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        sources      = $srcList
+        packages     = $packages
+        blockers     = $blockers
+        unassigned   = $unassigned
+        # The requirement register ITSELF, not a re-derivation: a requirement mapped to two packages must be
+        # counted once, and the board's own list has to come from here (the board gate asserts that the view
+        # reads this field instead of concatenating each package's reqs - I18).
+        requirements = $reqs
+        rtm          = (Split-Path $rtmPath -Leaf)
+        timeline     = $timeline
+        stages       = $stages
+        docmap       = $docmap
+        nextstep     = $nextstep
+        scope        = $scope
+        repoUrl      = $repoWebUrl
     }
     return ($model | ConvertTo-Json -Depth 6 -Compress)
 }
