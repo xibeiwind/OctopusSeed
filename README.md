@@ -40,9 +40,9 @@ OctopusSeed/
 │  ├─ .codebuddy/rules/     ← AI 预防层（阶段计划驱动 / 编号 / 追溯 / 质量门禁）
 │  ├─ .github/workflows/    ← CI：变更范围判定 + 规范文档线（栈作业由变体注入）
 │  ├─ docs/                 ← 文档骨架：README 地图 + 四份常驻单例 + 三份文档模板
-│  └─ tools/                ← governance-check（规范门禁）+ 看板工具（只读派生视图）
+│  └─ tools/                ← verify（判据单命令入口）+ governance-check（规范门禁）+ 看板工具（只读派生视图）
 └─ variants/                ← 技术栈专属门禁（可插拔，按需叠加）
-   ├─ dotnet/               ← Directory.Build.props/.targets + global.json + 可空红线规则
+   ├─ dotnet/               ← Directory.Build.props/.targets + global.json + 可空红线 + 最新 C# 语法规则 + 存量台账 assets.ps1
    ├─ typescript/           ← strict 门禁落地指引（tsconfig / eslint / vitest）
    └─ go/                   ← vet / staticcheck / go test 门禁落地指引
 ```
@@ -96,7 +96,11 @@ powershell -ExecutionPolicy Bypass -File template-check.ps1 -Smoke
 1. 改**内核**文件后，跑 `template-check.ps1 -Smoke`（占位符、清单一致性、文档引用、生成冒烟）；
 2. `MANIFEST.md` §5 记录各文件的来源与最后对账日期，避免"以为同步过"；
 3. 看板工具与文档形态**强耦合**（`template/CONTRIBUTING.md` §10 的「文档信号 = 接口」）：改动文档结构时，
-   必须同步改判据（`kanban-data.ps1` 的解析与 `kanban-check.ps1` 的断言），否则看板会静默少块。
+   必须同步改判据（`kanban-data.ps1` 的解析与 `kanban-check.ps1` 的断言），否则看板会静默少块；
+4. **源项目经验要回收**：解耦 ≠ 不回收——**回写窗口 = 源项目阶段收口评审时**，把本阶段的过程类教训按
+   「内核 / 变体 / 项目专属」三分类裁决，前两类回写并更新 §5「最后对账」列与 §5.1；
+   **回写一律逐块合并，禁止整文件覆盖**——两侧会**同时**分叉（源项目可能在覆盖判据上领先，
+   模板可能在几何 / 配色断言上更厚），覆盖等于删掉另一侧。
 
 ## 七、已知边界
 

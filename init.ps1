@@ -29,6 +29,9 @@ param(
     [string]$CiRunner = '["windows-latest"]',
     [string]$BuildCmd = '',
     [string]$TestCmd = '',
+    # Criterion 1 of tools/verify.ps1: the stack's own carrier for "green AND zero warnings". Empty falls back
+    # to BuildCmd - and when that one is still the '<...>' hint the criterion prints UNGUARDED, not PASS.
+    [string]$BuildGateCmd = '',
     [switch]$Force,
     [switch]$DryRun
 )
@@ -56,6 +59,8 @@ if (-not $AppKey) {
 }
 if (-not $BuildCmd) { $BuildCmd = [string]$stackMeta.buildCmd }
 if (-not $TestCmd) { $TestCmd = [string]$stackMeta.testCmd }
+if (-not $BuildGateCmd) { $BuildGateCmd = [string]$stackMeta.gateBuildCmd }
+if (-not $BuildGateCmd) { $BuildGateCmd = $BuildCmd }
 # I1 (mainline-runnable) has no stack-agnostic form: a real smoke command is project-specific.
 # An empty smokeCmd renders the generic hint, and CONTRIBUTING.md section 6 declares the invariant
 # UNGUARDED in that case - a gate that cannot fail is not a gate.
@@ -69,6 +74,7 @@ $map = [ordered]@{
     'STACK_ID'           = $Stack
     'BUILD_CMD'          = $BuildCmd
     'TEST_CMD'           = $TestCmd
+    'BUILD_GATE_CMD'     = $BuildGateCmd
     'SMOKE_CMD'          = $SmokeCmd
     'INTEGRATION_BRANCH' = $IntegrationBranch
     'RELEASE_BRANCH'     = $ReleaseBranch
