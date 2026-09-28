@@ -199,14 +199,21 @@ function Get-NextStep {
 #   * a row whose first cell is an I-number and that has 6 columns -> a registered item
 #   * a row whose first cell is an I-number and that has 4 columns -> a closed/archived entry
 #   * a row whose first cell carries Q1..Q4 (or, in the contract row, no Q at all) and 2 columns -> a quadrant
-# The document itself is resolved by CONTENT (the file that has an I-number pipe row), so it may be renamed.
+# The document itself is resolved by CONTENT, and - exactly like the gate - by WIDTH, never by "the first file
+# that matches": a requirements spec may repeat the same I-numbers in a NARROW red-line table, and name order
+# puts that spec first, so the register would silently read zero rows while the gate reads them all. Same rule
+# as the gate: the file with the most qualifying rows wins, a tie goes to name order.
 function Get-ScopeMap {
     param([string]$DocsDir)
     $file = $null
-    foreach ($f in (Get-ChildItem -LiteralPath $DocsDir -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
-        $hit = Get-Content -LiteralPath $f.FullName -Encoding UTF8 -ErrorAction SilentlyContinue |
-            Where-Object { $_ -match '^\|\s*I\d+\s*\|' }
-        if ($hit) { $file = $f; break }
+    $bestRows = 0
+    foreach ($f in @(Get-ChildItem -LiteralPath $DocsDir -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $n = 0
+        foreach ($ln in [System.IO.File]::ReadAllLines($f.FullName, [System.Text.Encoding]::UTF8)) {
+            if ($ln -notmatch '^\s*\|\s*I\d+\s*\|') { continue }
+            if (@($ln.Trim().Trim('|') -split '\|').Count -ge 4) { $n++ }
+        }
+        if ($n -gt $bestRows) { $bestRows = $n; $file = $f }
     }
     if (-not $file) { return $null }
     $lines = @(Get-Content -LiteralPath $file.FullName -Encoding UTF8)
@@ -296,11 +303,23 @@ function Get-KanbanJson {
     $mdFiles = @(Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name)
     $planFiles = @()
     foreach ($f in $mdFiles) { if (Test-PackagePlan -Path $f.FullName) { $planFiles += $f } }
+    # The traceability register is resolved by SHAPE, and with the SAME rule the board gate uses (kanban-check's
+    # Get-RegisterIds): the file carrying the MOST R-headed rows that are at least 7 pipes wide, ties broken by
+    # name order. Width is what tells the register from an enumeration row that merely starts with an id. The
+    # previous rule here - "the first file, name order, that has any R-headed row" - was a SECOND rule for one
+    # question, and the two disagree by construction: docs/01's skeleton carries the sample row `| R-1 | | |` and
+    # sorts before the register, so the model read a 3-column enumeration table, dropped every row for being too
+    # narrow, and published an EMPTY requirement list - while the gate, reading the wide table, expected all of
+    # them and reported every id as a link into empty space.
     $rtmFile = $null
+    $rtmRows = 0
     foreach ($f in $mdFiles) {
-        $hit = Get-Content -LiteralPath $f.FullName -Encoding UTF8 -ErrorAction SilentlyContinue |
-            Where-Object { $_ -match '^\|\s*R-[A-Za-z0-9-]+\s*\|' }
-        if ($hit) { $rtmFile = $f; break }
+        $n = 0
+        foreach ($ln in [System.IO.File]::ReadAllLines($f.FullName, [System.Text.Encoding]::UTF8)) {
+            if ($ln -notmatch '^\s*\|\s*R-[A-Za-z0-9-]+\s*\|') { continue }
+            if (@($ln.Trim().Trim('|') -split '\|').Count -ge 7) { $n++ }
+        }
+        if ($n -gt $rtmRows) { $rtmRows = $n; $rtmFile = $f }
     }
     # The timeline doc is resolved by CONTENT as well: the file that carries a table whose first cell is
     # an ISO date. Section headings are Chinese and are never matched as literals.
