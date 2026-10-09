@@ -164,6 +164,7 @@
 | `variants/dotnet/.codebuddy/rules/modern-csharp-syntax/`、`variants/dotnet/tools/assets.ps1` | **经验回收批次**（通用化改写：去掉项目名 / 案例与硬编码的解决方案名，保留撞测纪律与 `EXPIRED` 约定） | 2026-09-22 | 2026-09-22 |
 | `manifest.json` / `init.ps1` / `template-check.ps1` | 随同批次更新：新占位符 `{{BUILD_GATE_CMD}}`、四个新登记文件、`tools/*.ps1` 解析改为**枚举**并断言判据入口存在 | 2026-09-22 | 2026-09-22 |
 | `template/CONTRIBUTING.md`（§1 / §3 / §5 / §9.1 / §9.2）、`template/docs/模板/{阶段执行计划,能力专题设计}模板.md`、`template/.codebuddy/rules/{stage-plan-driven,option-based-input,rtm-traceability}` | **经验回收批次**（源项目 2026-09-24 / 2026-09-25 两条过程内核修订）：① `R-Plan-6` 的「**工程**作用域」（归属四轴 / 剥离测试 / 五步路径 / 成本不改落点 / 术语纪律）；② 机械事实的「**起草时点 = PR 创建之后、合并之前**」（含一 PR 多包时的 `(unrecognized, verify)` 口径）；③ 工作包**切片** `Px-y-z`（正式跟踪单元 / 不进提交前缀 / 不占包位 / 独立 DoD 与每片回填 / 生效时点）。**逐块合并，未动模板原有的门禁与看板断言**；核对源项目 `I32` 两条 + 切片修订已全部落地 | 2026-09-28 | 2026-09-28 |
+| `template/tools/*.ps1`（去中文：5 个脚本共 9 处）、`template-check.ps1`（新增第 6 项 `ascii-only`）、`template/CONTRIBUTING.md`（§10 禁令 ⑩ 补"已由机械校验兜住"与 `[char]0x….` 做法） | **本仓自修**（源项目 P0 收口的 `Q3`）：规范 ⑩ 早已要求 `tools/*.ps1` **必须 ASCII-only**，但 5 个脚本含 9 处中文 ⇒ 手工复制到 PS 5.1 即解析失败。核实后 8 处在注释与提示文案（改英文即零风险），1 处是**匹配文档中文**的功能性字符串（`PR 待提`，改用 `[char]0x5F85` + `[char]0x63D0` 拼接，判据不变）。**修法是去掉中文，不是加 BOM**——后者只会让那一个文件能跑，并新增一条与 ⑩ 冲突的约定 | 2026-10-09 | 2026-10-09 |
 
 > **改模板的流程**：改内核 → 跑 `template-check.ps1 -Smoke` → 更新本表「最后对账」列 → 提交。
 > **源项目继续演进不影响本模板**：本模板是**快照 + 抽取**，不是源的镜像；两者解耦后靠上表记录血缘，而不是靠同步脚本。

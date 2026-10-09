@@ -1,7 +1,7 @@
 <#
 Serve the kanban over a local HTTP server so the board stays LIVE.
 
-When you edit docs/03-P0执行计划.md or docs/需求跟踪矩阵.md, the already-open page
+When you edit the stage plan or the RTM under docs/, the already-open page
 updates in place (within ~2s) WITHOUT reloading. The page polls /data in the
 background; this server re-parses the docs on every request, so there is no cached
 copy that can go stale (responses carry `Cache-Control: no-store`, so a browser

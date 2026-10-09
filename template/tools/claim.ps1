@@ -60,7 +60,7 @@ if ($takenIn.Count -gt 0) {
 $plans = @(Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match '^[0-9]+-P[0-9]+' } | Sort-Object Name -Descending)
 if ($plans.Count -eq 0) {
-    Write-Host 'CLAIM_FAIL: no stage plan found under docs/ (expected the shape NN-Px执行计划.md).'
+    Write-Host 'CLAIM_FAIL: no stage plan found under docs/ (expected NN-Px + the CJK plan suffix).'
     Write-Host '  create one from the stage-plan template first, then claim again.'
     exit 2
 }

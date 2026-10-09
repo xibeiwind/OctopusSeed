@@ -14,8 +14,16 @@ Checks
                     no forbidden source-project token survives
   3. docs-drift     MANIFEST.md section 1 and manifest.json declare the SAME placeholder set
   4. docref         relative references inside template/**/*.md and *.mdc resolve
-                    (paths that only exist AFTER generation are skipped on purpose)
+                     (paths that only exist AFTER generation are skipped on purpose)
   5. smoke          -Smoke: generate every stack into a temp folder and assert the result is usable
+  6. ascii-only     every shipped template/tools/*.ps1 is pure ASCII (no CJK, no smart quotes).
+                     PS 5.1 reads a BOM-less script as ANSI, so a non-ASCII literal inside a script
+                     is a latent parse failure - and the machine that matters is the operator's.
+                     Shipped docs/HTML stay UTF-8; only scripts carry this constraint.
+                     Need to match CJK that lives in the docs? Concatenate [char]0x.... - do NOT
+                     write the literal (adding a BOM only makes the CJK "work"; it does not stop
+                     the next script from repeating the mistake).
+
 
 Usage
 -----
@@ -77,7 +85,7 @@ function Test-SkipRef([string]$r) {
 
 # --- [1/5] required files ----------------------------------------------------
 Write-Host ''
-Write-Host '--- [1/5] required files (both directions) ---'
+Write-Host '--- [1/6] required files (both directions) ---'
 $missing = 0
 $requiredSet = @{}
 foreach ($rel in @($meta.required)) {
@@ -100,7 +108,7 @@ Info ("declared {0}, shipped {1}, missing {2}, undeclared {3}" -f @($meta.requir
 
 # --- [2/5] placeholders & forbidden tokens ----------------------------------
 Write-Host ''
-Write-Host '--- [2/5] placeholders & forbidden tokens ---'
+Write-Host '--- [2/6] placeholders & forbidden tokens ---'
 $files = @()
 if (Test-Path -LiteralPath $coreRoot) { $files += @(Get-ChildItem -LiteralPath $coreRoot -Recurse -File -Force) }
 if (Test-Path -LiteralPath $variantsRoot) { $files += @(Get-ChildItem -LiteralPath $variantsRoot -Recurse -File -Force) }
@@ -126,7 +134,7 @@ foreach ($k in $allowed.Keys) {
 
 # --- [3/5] MANIFEST.md <-> manifest.json -----------------------------------
 Write-Host ''
-Write-Host '--- [3/5] placeholder documentation drift ---'
+Write-Host '--- [3/6] placeholder documentation drift ---'
 $manifestMd = Join-Path $RepoRoot 'MANIFEST.md'
 if (Test-Path -LiteralPath $manifestMd) {
     $md = Read-Text $manifestMd
@@ -145,7 +153,7 @@ if (Test-Path -LiteralPath $manifestMd) {
 
 # --- [4/5] relative references in the shipped docs -------------------------
 Write-Host ''
-Write-Host '--- [4/5] doc references resolve ---'
+Write-Host '--- [4/6] doc references resolve ---'
 $docFiles = @()
 if (Test-Path -LiteralPath $coreRoot) {
     $docFiles = @(Get-ChildItem -LiteralPath $coreRoot -Recurse -File -Force | Where-Object { $_.Extension -in '.md', '.mdc' })
@@ -251,8 +259,39 @@ if ($Smoke) {
     }
 } else {
     Write-Host ''
-    Write-Host '--- [5/5] smoke skipped (pass -Smoke to enable) ---'
+    Write-Host '--- [5/6] smoke skipped (pass -Smoke to enable) ---'
 }
+
+# --- [6/6] shipped tools are ASCII-only -------------------------------------
+# A shipped script must be pure ASCII: PS 5.1 reads a BOM-less script as ANSI, so a CJK literal inside
+# one is a latent parse failure on the operator's machine (a smart quote is the same trap in disguise).
+# Docs and HTML are UTF-8 and exempt. The fix is to remove the literal - to match CJK that lives in the
+# docs, concatenate [char]0x.... - NOT to add a BOM (a BOM only makes that one file work; it leaves the
+# next script free to repeat the mistake).
+Write-Host ''
+Write-Host '--- [6/6] shipped tools are ASCII-only ---'
+$toolScripts = @()
+foreach ($root in @($coreRoot, $variantsRoot)) {
+    if (Test-Path -LiteralPath $root) {
+        $toolScripts += @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.ps1' -Force | Sort-Object FullName)
+    }
+}
+$nonAscii = 0
+foreach ($tool in $toolScripts) {
+    $bytes = [IO.File]::ReadAllBytes($tool.FullName)
+    # a UTF-8 BOM is a byte-order mark, not a non-ASCII literal: skip it before scanning
+    $start = 0
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $start = 3 }
+    for ($i = $start; $i -lt $bytes.Length; $i++) {
+        if ($bytes[$i] -gt 0x7F) {
+            $rel = $tool.FullName.Substring($RepoRoot.Length).TrimStart('\') -replace '\\', '/'
+            Finding 'ascii-only' ("{0} : non-ASCII byte 0x{1:X2} at offset {2}" -f $rel, $bytes[$i], $i)
+            $nonAscii++
+            break
+        }
+    }
+}
+Info ("tools scripts scanned: {0}; non-ASCII: {1}" -f $toolScripts.Count, $nonAscii)
 
 # --- verdict ---------------------------------------------------------------
 Write-Host ''
