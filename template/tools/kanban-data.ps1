@@ -279,9 +279,9 @@ function Test-PackagePlan {
 
 # Build the board model JSON from the governance docs.
 # Positional column indices follow the stable table layout of the docs:
-#   plan section 3 : | 包 | 内容 | 依赖 | 状态 |
-#   plan section 8 : | # | 问题 | 来源 | 阻塞哪个包 | 状态与结论 |
-#   RTM table      : | 需求 ID | 需求（§/R） | 工作包 | 阶段 | 状态 | 验收 / 证据 | 备注 |
+#   plan section 3 : | package | content | deps | status |
+#   plan section 8 : | # | question | source | blocks | status |
+#   RTM table      : | req id | requirement | package | stage | status | evidence | note |
 function Get-KanbanJson {
     param([string]$RepoRoot = '')
 
@@ -439,7 +439,9 @@ function Get-KanbanJson {
         $col = Col-FromStatus $status
         $pr = ''
         if ($status -match '#(\d+)') { $pr = '#' + $Matches[1] }
-        elseif ($status -like '*PR 待提*') { $pr = 'PR pending' }
+        # The plan writes this marker in its own language, so match it by code point instead of
+        # writing CJK here: this file must stay ASCII-only (template/CONTRIBUTING.md section 10, item 10).
+        elseif ($status -like ('*PR ' + [string][char]0x5F85 + [string][char]0x63D0 + '*')) { $pr = 'PR pending' }
         $stage = if ($id -match '^(P\d+)') { $Matches[1] } else { '' }
         $packages += [ordered]@{
             id      = $id

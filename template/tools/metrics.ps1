@@ -183,7 +183,7 @@ if (-not $Write -and -not $Check) {
     Write-Host "OctopusSeed metrics (recomputed from git; reproducible)"
     Write-Host ("  repo: {0}" -f $RepoRoot)
     if ($plan) { Write-Host ("  stage plan: docs/{0} (last touched {1} day(s) ago)" -f $plan.Name, (Format-Int $planStale)) }
-    else { Write-Host '  stage plan: none found (expected docs/NN-Px执行计划.md)' }
+    else { Write-Host '  stage plan: none found (expected NN-Px + the CJK plan suffix under docs/)' }
     foreach ($k in $metricOrder) { Write-Host ("  {0,-24} {1}" -f $k, $values[$k]) }
     if ($leadTimes.Count -gt 0) { Write-Host ("  (lead time sample: {0} package(s) merged through a PR)" -f $leadTimes.Count) }
     else { Write-Host '  (lead time sample: none - no package branch was merged via a PR yet)' }

@@ -2,8 +2,8 @@
 Generate a static, self-contained browser kanban from the governance docs.
 
 The board is rendered entirely client-side from data parsed out of
-docs/03-P0执行计划.md (section 3 work packages + section 8 open decisions) and
-docs/需求跟踪矩阵.md (RTM). This file is the offline/portable path: it writes one
+the current stage plan under docs/ (section 3 work packages + section 8 open decisions) and
+the requirements traceability matrix (RTM). This file is the offline/portable path: it writes one
 static HTML (tools/kanban.html) with the data embedded. For a LIVE board that updates
 in place when you edit the docs (no page reload), run tools/serve-kanban.ps1 instead.
 
