@@ -49,6 +49,8 @@ powershell -ExecutionPolicy Bypass -File tools/build-kanban.ps1   # 生成静态
 powershell -ExecutionPolicy Bypass -File tools/serve-kanban.ps1   # 本地实时看板
 ```
 
+Windows 下也可以直接双击 `kanban.bat`（等价于上面第二条，端口 5180）。
+
 > 看板是**只读派生视图**，不是第二真源；它按文档结构解析（「文档信号 = 接口」，见 `CONTRIBUTING.md` §10）。
 
 ## 本仓库的起点
