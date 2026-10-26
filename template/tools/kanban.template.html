@@ -38,7 +38,15 @@ html[data-theme="dark"] .icon-btn .icon-sun{display:block;}
 html[data-theme="dark"] .icon-btn .icon-moon{display:none;}
 .live{display:none;background:var(--blue);color:var(--on-blue);padding:2px 9px;border-radius:10px;font-size:11px;margin-left:10px;vertical-align:middle;}
 .controls{display:flex;gap:10px;align-items:center;padding:8px 20px 10px;flex-wrap:wrap;}
-.controls input{padding:6px 8px;border:1px solid var(--field-border);background:var(--field-bg);color:var(--ink);border-radius:4px;min-width:260px;}
+.controls input:not([type="checkbox"]){padding:6px 8px;border:1px solid var(--field-border);background:var(--field-bg);color:var(--ink);border-radius:4px;min-width:260px;}
+/* A checkbox is the one control here that must NOT look like a text field, so both field rules skip it
+   (:not([type="checkbox"]) above and on .opt input below). It is drawn from the palette instead of left to
+   the platform: an UA-drawn tick keeps its own grey box in either theme, which is the mismatched square this
+   replaced. Same chrome as the other fields when unchecked, --blue / --on-blue (an asserted pair) when on. */
+.controls input[type="checkbox"]{appearance:none;-webkit-appearance:none;position:relative;width:14px;height:14px;margin:0;border:1px solid var(--field-border);background:var(--field-bg);border-radius:3px;cursor:pointer;}
+.controls input[type="checkbox"]:checked{background:var(--blue);border-color:var(--blue);}
+.controls input[type="checkbox"]:checked::after{content:'';position:absolute;left:3px;top:0;width:4px;height:8px;border:solid var(--on-blue);border-width:0 2px 2px 0;transform:rotate(45deg);}
+.controls input[type="checkbox"]:focus-visible{outline:2px solid var(--blue);outline-offset:1px;}
 .btn{padding:6px 10px;border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--ink);border-radius:4px;cursor:pointer;font-size:13px;}
 .btn:hover{border-color:var(--blue);}
 .btn.active{background:var(--blue);color:var(--on-blue);border-color:var(--blue);}
@@ -172,7 +180,10 @@ footer{padding:10px 20px;font-size:11px;color:var(--muted);}
 .tools.hidden{display:none;}
 .hits{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
 .opt{display:inline-flex;gap:5px;align-items:center;font-size:12px;color:var(--muted);}
-.opt select,.opt input{padding:3px 4px;border:1px solid var(--field-border);background:var(--field-bg);color:var(--ink);border-radius:4px;font-size:12px;}
+/* Every toolbar control draws its chrome from the palette here, INCLUDING the ones that are not wrapped in a
+   <label class="opt">: #stagefilter is a bare <select> directly under .tools, and an unstyled select keeps the
+   UA's light box, which reads as a hole punched through the dark band. */
+.opt select,.opt input:not([type="checkbox"]),.tools>select{padding:3px 4px;border:1px solid var(--field-border);background:var(--field-bg);color:var(--ink);border-radius:4px;font-size:12px;}
 /* --- the reader's own view (P0-15) ---
    The board is a read-only projection of the docs, so the only state it may keep is the reader's view.
    A collapsible lane needs a control that looks like one: pointer cursor, keyboard reachable, visible
