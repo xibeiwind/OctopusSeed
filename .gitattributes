@@ -1,0 +1,4 @@
+# .bat 由 cmd.exe 消费，CRLF 才稳。本仓 core.autocrlf=input：入口是 CRLF，仓库里存 LF，
+# 且检出时**不**回转 —— 不加这条，新克隆出来的批处理就是 LF 文件。
+# 注意：这条只管本仓；随模板分发的 template/kanban.bat 由 init.ps1 原样拷贝，不受影响。
+*.bat text eol=crlf
