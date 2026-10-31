@@ -17,12 +17,16 @@ Checks
                      (paths that only exist AFTER generation are skipped on purpose)
   5. smoke          -Smoke: generate every stack into a temp folder and assert the result is usable
   6. ascii-only     every shipped template/tools/*.ps1 is pure ASCII (no CJK, no smart quotes).
-                     PS 5.1 reads a BOM-less script as ANSI, so a non-ASCII literal inside a script
-                     is a latent parse failure - and the machine that matters is the operator's.
-                     Shipped docs/HTML stay UTF-8; only scripts carry this constraint.
-                     Need to match CJK that lives in the docs? Concatenate [char]0x.... - do NOT
-                     write the literal (adding a BOM only makes the CJK "work"; it does not stop
-                     the next script from repeating the mistake).
+                    PS 5.1 reads a BOM-less script as ANSI, so a non-ASCII literal inside a script
+                    is a latent parse failure - and the machine that matters is the operator's.
+                    Shipped docs/HTML stay UTF-8; only scripts carry this constraint.
+                    Need to match CJK that lives in the docs? Concatenate [char]0x.... - do NOT
+                    write the literal (adding a BOM only makes the CJK "work"; it does not stop
+                    the next script from repeating the mistake).
+  7. regex-escape   no shipped HTML script contains a DOUBLE-escaped regex class (\s, \d, \D, \w, \W).
+                    /\\s+/ does not throw - it matches a literal backslash followed by "s", so the
+                    code silently stops doing its job (search stops normalising, PR numbers parse to
+                    -1, stage order collapses to 0). One careless escape survives every runtime check.
 
 
 Usage
@@ -85,7 +89,7 @@ function Test-SkipRef([string]$r) {
 
 # --- [1/5] required files ----------------------------------------------------
 Write-Host ''
-Write-Host '--- [1/6] required files (both directions) ---'
+Write-Host '--- [1/7] required files (both directions) ---'
 $missing = 0
 $requiredSet = @{}
 foreach ($rel in @($meta.required)) {
@@ -108,7 +112,7 @@ Info ("declared {0}, shipped {1}, missing {2}, undeclared {3}" -f @($meta.requir
 
 # --- [2/5] placeholders & forbidden tokens ----------------------------------
 Write-Host ''
-Write-Host '--- [2/6] placeholders & forbidden tokens ---'
+Write-Host '--- [2/7] placeholders & forbidden tokens ---'
 $files = @()
 if (Test-Path -LiteralPath $coreRoot) { $files += @(Get-ChildItem -LiteralPath $coreRoot -Recurse -File -Force) }
 if (Test-Path -LiteralPath $variantsRoot) { $files += @(Get-ChildItem -LiteralPath $variantsRoot -Recurse -File -Force) }
@@ -134,7 +138,7 @@ foreach ($k in $allowed.Keys) {
 
 # --- [3/5] MANIFEST.md <-> manifest.json -----------------------------------
 Write-Host ''
-Write-Host '--- [3/6] placeholder documentation drift ---'
+Write-Host '--- [3/7] placeholder documentation drift ---'
 $manifestMd = Join-Path $RepoRoot 'MANIFEST.md'
 if (Test-Path -LiteralPath $manifestMd) {
     $md = Read-Text $manifestMd
@@ -153,7 +157,7 @@ if (Test-Path -LiteralPath $manifestMd) {
 
 # --- [4/5] relative references in the shipped docs -------------------------
 Write-Host ''
-Write-Host '--- [4/6] doc references resolve ---'
+Write-Host '--- [4/7] doc references resolve ---'
 $docFiles = @()
 if (Test-Path -LiteralPath $coreRoot) {
     $docFiles = @(Get-ChildItem -LiteralPath $coreRoot -Recurse -File -Force | Where-Object { $_.Extension -in '.md', '.mdc' })
@@ -259,17 +263,17 @@ if ($Smoke) {
     }
 } else {
     Write-Host ''
-    Write-Host '--- [5/6] smoke skipped (pass -Smoke to enable) ---'
+    Write-Host '--- [5/7] smoke skipped (pass -Smoke to enable) ---'
 }
 
-# --- [6/6] shipped tools are ASCII-only -------------------------------------
+# --- [6/7] shipped tools are ASCII-only -------------------------------------
 # A shipped script must be pure ASCII: PS 5.1 reads a BOM-less script as ANSI, so a CJK literal inside
 # one is a latent parse failure on the operator's machine (a smart quote is the same trap in disguise).
 # Docs and HTML are UTF-8 and exempt. The fix is to remove the literal - to match CJK that lives in the
 # docs, concatenate [char]0x.... - NOT to add a BOM (a BOM only makes that one file work; it leaves the
 # next script free to repeat the mistake).
 Write-Host ''
-Write-Host '--- [6/6] shipped tools are ASCII-only ---'
+Write-Host '--- [6/7] shipped tools are ASCII-only ---'
 $toolScripts = @()
 foreach ($root in @($coreRoot, $variantsRoot)) {
     if (Test-Path -LiteralPath $root) {
@@ -292,6 +296,33 @@ foreach ($tool in $toolScripts) {
     }
 }
 Info ("tools scripts scanned: {0}; non-ASCII: {1}" -f $toolScripts.Count, $nonAscii)
+
+# --- [7/7] shipped HTML carries no double-escaped regex ---------------------
+# The board's behaviour lives in an inline script that is copied into every generated project, so a bad
+# escape propagates. The failure is silent (no exception, no console error): the regex simply never matches
+# what it was written for. Cheap to prove, expensive to notice - hence a mechanical check.
+Write-Host ''
+Write-Host '--- [7/7] shipped HTML has no double-escaped regex ---'
+$htmlFiles = @()
+foreach ($root in @($coreRoot, $variantsRoot)) {
+    if (Test-Path -LiteralPath $root) {
+        $htmlFiles += @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.html' -Force | Sort-Object FullName)
+    }
+}
+$badEscapes = 0
+foreach ($hf in $htmlFiles) {
+    $rel = $hf.FullName.Substring($RepoRoot.Length).TrimStart('\') -replace '\\', '/'
+    $lineNo = 0
+    foreach ($line in [IO.File]::ReadAllLines($hf.FullName, $enc)) {
+        $lineNo++
+        # two literal backslashes followed by a regex class letter: the pattern a doubled escape leaves behind
+        if ([regex]::IsMatch($line, '\\\\[sSdDwW]')) {
+            Finding 'regex-escape' ("{0}:{1} : doubled backslash before a regex class letter" -f $rel, $lineNo)
+            $badEscapes++
+        }
+    }
+}
+Info ("html files scanned: {0}; doubled escapes: {1}" -f $htmlFiles.Count, $badEscapes)
 
 # --- verdict ---------------------------------------------------------------
 Write-Host ''
