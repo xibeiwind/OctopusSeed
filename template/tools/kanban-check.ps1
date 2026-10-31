@@ -255,7 +255,9 @@ $mustExist = @(
     @{ p = 'id="stickybar"';                        label = 'the tabs and the toolbar share one sticky band' },
     @{ p = 'class="hits" id="hits"';                 label = 'the toolbar has its own read-out line' },
     @{ p = 'id="boardtools"';                        label = 'the board-only tools have a container to hide' },
-    @{ p = 'id="stagefilter"';                       label = 'the stage filter is a select, not a row of buttons' },
+    @{ p = 'function boardStages\(\)\{';             label = 'the board is partitioned into stage blocks' },
+    @{ p = 'function stageOpen\(id\)\{';             label = 'a stage block decides its own open state' },
+    @{ p = 'function toggleStageOpen\(id\)\{';       label = 'a stage block can be opened and closed' },
     @{ p = 'id="opt-empty"';                         label = 'the empty-lane option exists' },
     @{ p = 'id="opt-sort"';                          label = 'the sort option exists' },
     @{ p = 'setProperty\(''--hdr-h''';                 label = 'the band offset is measured, not assumed' },
@@ -277,6 +279,13 @@ $mustExist = @(
     @{ p = '--flash:rgba\(';                         label = 'the pulse colour comes from the palette' },
     @{ p = '\.banner\.warn\{';                       label = 'the notice bar marks a dropped override' },
     @{ p = 'function prHtml\(pr\)\{';                label = 'a PR number links to its pull request' },
+    @{ p = 'id="req-head"';                          label = 'the requirement caption names the register it maps' },
+    @{ p = 'function table\(headers,rows,keys,details\)\{'; label = 'a register row can carry its long columns in a detail row' },
+    @{ p = 'function frChips\(r\)\{';                label = 'the sub-item ids are chips, not prose' },
+    @{ p = 'a\.rid\{';                               label = 'a requirement id links into the document it lives in' },
+    @{ p = 'function landAnchor\(anchor\)\{';        label = 'a document link lands on the row it names' },
+    @{ p = 'function mdRowAnchor\(cell\)\{';         label = 'only the requirement-id shape becomes a row anchor' },
+    @{ p = 'function decisionBlockedPkgs\(\)\{';     label = 'an open decision keeps its packages out of the ready list' },
     @{ p = '"repoUrl":';                             label = 'the model carries the repository URL (empty when the clone cannot say)' }
 )
 foreach ($c in $mustExist) {

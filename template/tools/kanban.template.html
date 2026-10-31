@@ -54,6 +54,21 @@ html[data-theme="dark"] .icon-btn .icon-moon{display:none;}
 .col{background:var(--col);border:1px solid var(--col-border);border-radius:8px;width:280px;flex:1 1 280px;min-width:260px;padding:10px;}
 .col h2{font-size:14px;margin:4px 6px 10px;display:flex;justify-content:space-between;}
 .col .count{background:var(--count-bg);border-radius:10px;padding:1px 8px;font-size:12px;color:var(--count-ink);}
+/* --- stage blocks (the board is partitioned by stage; CONTRIBUTING 10-13) ---
+   One block per stage: the header is the block's open / close control and carries that stage's own
+   numbers, the body is the stage's lanes. A closed block renders its header and nothing else, so a
+   finished stage costs one line instead of a wall of cards. The header sits on the CARD surface and is
+   indented by the page gutter, so it lines up with the lanes below it - and every ink-on-surface pair it
+   uses (--blue / --muted / --ink on --card) is one the gate already asserts. */
+#board{padding:0;}
+.stagesec{margin:0 0 10px;}
+.stagesec.collapsed{margin-bottom:4px;}
+.stagesec.collapsed>h2{margin-bottom:0;}
+.stagesec>h2{display:flex;align-items:baseline;gap:8px;margin:0 20px 8px;padding:7px 12px;background:var(--card);border:1px solid var(--line);border-radius:8px;font-size:14px;box-shadow:var(--panel-shadow);cursor:pointer;}
+.stagesec>h2:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+.stagesec>h2 .sname{font-weight:700;color:var(--blue);}
+.stagesec>h2 .sstat{font-size:12px;color:var(--muted);}
+.stagesec>h2 .scount{margin-left:auto;font-size:12px;color:var(--ink);}
 .card{background:var(--card);border-radius:6px;padding:10px;margin-bottom:10px;box-shadow:var(--card-shadow);cursor:grab;}
 .card:active{cursor:grabbing;}
 .card.dragging{opacity:.4;}
@@ -70,6 +85,24 @@ html[data-theme="dark"] .icon-btn .icon-moon{display:none;}
 .dot.backlog{background:var(--idle);}
 .dot.closed{background:var(--muted);}
 .req .rid{font-weight:600;color:var(--rid);}
+/* --- the requirement register ---
+   The two long columns (evidence / remark) moved into a per-row detail, so the visible table stays narrow
+   enough to read without horizontal scrolling; the chips are the sub-item ids the reference cell ALREADY
+   carries, so they add no fact - only a way to see "this group has five sub-items" without a document
+   round-trip. Colours stay inside the palette and reuse pairs the gate already asserts (--rid/--ink on
+   --card, --ink on --field-bg). */
+a.rid{color:var(--rid);text-decoration:underline;text-decoration-style:dotted;cursor:pointer;}
+a.rid:hover{color:var(--blue);}
+button.frchip{font:inherit;font-size:11px;padding:0 5px;margin:0 1px;border:1px solid var(--line);border-radius:9px;background:var(--field-bg);color:var(--ink);cursor:pointer;}
+button.frchip:hover{border-color:var(--blue);color:var(--blue);}
+button.frchip:focus-visible{outline:2px solid var(--blue);outline-offset:1px;}
+button.dtoggle{font:inherit;font-size:11px;padding:2px 8px;border:1px solid var(--btn-border);border-radius:4px;background:var(--btn-bg);color:var(--ink);cursor:pointer;}
+button.dtoggle:hover{border-color:var(--blue);}
+button.dtoggle:focus-visible{outline:2px solid var(--blue);outline-offset:1px;}
+tr.detail.hidden{display:none;}
+tr.detail>td{background:var(--bcard-bg);}
+.drow{margin:3px 0;font-size:12px;}
+.drow b{font-weight:600;color:var(--muted);margin-right:5px;}
 .blockers{margin:0 20px 24px;background:var(--card);border-radius:8px;padding:14px;box-shadow:var(--panel-shadow);}
 .blockers h2{margin:0 0 10px;font-size:15px;}
 .bcard{border-left:4px solid var(--blocked);padding:8px 10px;margin-bottom:8px;background:var(--bcard-bg);border-radius:0 4px 4px 0;}
@@ -180,10 +213,10 @@ footer{padding:10px 20px;font-size:11px;color:var(--muted);}
 .tools.hidden{display:none;}
 .hits{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
 .opt{display:inline-flex;gap:5px;align-items:center;font-size:12px;color:var(--muted);}
-/* Every toolbar control draws its chrome from the palette here, INCLUDING the ones that are not wrapped in a
-   <label class="opt">: #stagefilter is a bare <select> directly under .tools, and an unstyled select keeps the
-   UA's light box, which reads as a hole punched through the dark band. */
-.opt select,.opt input:not([type="checkbox"]),.tools>select{padding:3px 4px;border:1px solid var(--field-border);background:var(--field-bg);color:var(--ink);border-radius:4px;font-size:12px;}
+/* Toolbar controls draw their chrome from the palette here. The stage FILTER is gone (the board is partitioned
+   into stage blocks, CONTRIBUTING 10-13), so the `.tools>select` exception it needed went with it - the sort
+   control is the only remaining select and it lives inside a <label class="opt">. */
+.opt select,.opt input:not([type="checkbox"]){padding:3px 4px;border:1px solid var(--field-border);background:var(--field-bg);color:var(--ink);border-radius:4px;font-size:12px;}
 /* --- the reader's own view (P0-15) ---
    The board is a read-only projection of the docs, so the only state it may keep is the reader's view.
    A collapsible lane needs a control that looks like one: pointer cursor, keyboard reachable, visible
@@ -284,9 +317,10 @@ tr.flash>td,.card.flash,.qid.flash{animation:flashbg 1.3s ease-out 2;}
 <div class="controls">
 <input id="search" placeholder="筛选当前页签（编号 / 文本 / PR / 需求）..." aria-label="筛选当前页签">
 <span class="hits" id="hits"></span>
-<!-- The stage filter, the sort order and the resync button belong to the board, so they hide with it. -->
+<!-- The sort order and the resync button belong to the board, so they hide with it. The stage scope is NOT
+     a control here any more: the board is partitioned into stage blocks and each block header is its own
+     open / close control (CONTRIBUTING 10-13), so a stage filter would be a second, weaker way to say it. -->
 <span class="tools" id="boardtools">
-<select id="stagefilter" aria-label="按阶段筛选"></select>
 <label class="opt" title="隐藏没有任何卡片的泳道"><input type="checkbox" id="opt-empty"> 隐藏空列</label>
 <label class="opt" title="卡片排序方式">排序<select id="opt-sort"><option value="doc">文档顺序</option><option value="id">编号倒序</option><option value="pr">PR 新→旧</option></select></label>
 <button class="btn" id="reset">复位为文档值</button>
@@ -298,10 +332,14 @@ tr.flash>td,.card.flash,.qid.flash{animation:flashbg 1.3s ease-out 2;}
 <div class="banner hidden" id="ovbanner" role="status" aria-live="polite"></div>
 <div class="panel" id="p-overview" role="tabpanel" aria-labelledby="tab-overview">
 <div class="kpis" id="kpis"></div>
-<div class="board" id="board"></div>
+<!-- One block per stage, built by renderBoard(): the container is deliberately plain - the lanes keep
+     their own `.board` row, one per stage block. -->
+<div id="board"></div>
 </div>
 <div class="panel hidden" id="p-reqs" role="tabpanel" aria-labelledby="tab-reqs">
-<div class="section"><h2>需求（docs/需求跟踪矩阵.md 追溯表 —— 点编号在该文档定位它）</h2><div class="tbl-wrap" id="req-rows"></div></div>
+<!-- The caption is filled by renderReqPanel from DATA.rtm: the register's leaf name is never typed here,
+     and the line tells the reader where the semantics live before they look for it. -->
+<div class="section"><h2 id="req-head">需求</h2><div class="tbl-wrap" id="req-rows"></div></div>
 </div>
 <div class="panel hidden" id="p-stages" role="tabpanel" aria-labelledby="tab-stages">
 <div class="section"><h2>阶段（docs/项目时间线.md §2）</h2><div class="tbl-wrap" id="stage-rows"></div></div>
@@ -348,9 +386,10 @@ var DATA = __DATA__;
 var COLS=[{k:'backlog',l:'未开始'},{k:'progress',l:'进行中'},{k:'blocked',l:'阻塞'},{k:'done',l:'已完成'},{k:'closed',l:'取消 / 范围外'}];
 var overrides = JSON.parse(localStorage.getItem('{{APP_KEY}}_kanban_overrides')||'{}');
 /* Status -> lane, by code point (see CONTRIBUTING 9.3 for the mapping and why it must stay in step
-   with tools/kanban-data.ps1). \u274C is 取消 / 转为范围外: it must NOT fall through to "backlog",
-   which would show a cancelled item as pending work. */
-function colOf(s){if(!s)return'backlog';if(s.indexOf('\u2705')>=0)return'done';if(s.indexOf('\uD83D\uDD04')>=0)return'progress';if(s.indexOf('\u23F8')>=0)return'blocked';if(s.indexOf('\u274C')>=0)return'closed';return'backlog';}
+   with tools/kanban-data.ps1). \uD83D\uDFE6 is 存量已实现 - it describes code that shipped without going
+   through the process, so it sits in "done": leaving it in "backlog" would read as pending work the plan
+   never had. \u274C is 取消 / 转为范围外: it must NOT fall through to "backlog" either. */
+function colOf(s){if(!s)return'backlog';if(s.indexOf('\u2705')>=0)return'done';if(s.indexOf('\uD83D\uDFE6')>=0)return'done';if(s.indexOf('\uD83D\uDD04')>=0)return'progress';if(s.indexOf('\u23F8')>=0)return'blocked';if(s.indexOf('\u274C')>=0)return'closed';return'backlog';}
 function esc(t){return (t||'').replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
 /* A PR number becomes a link as soon as the model carries the repository URL (kanban-data.ps1 reads
    `git remote get-url origin`), so a card or a row is one click away from its pull request. When that field
@@ -363,7 +402,6 @@ function prHtml(pr){
   if(!DATA.repoUrl||!m)return esc(s);
   return '<a href="'+esc(DATA.repoUrl)+'/pull/'+m[1]+'" target="_blank" rel="noopener">'+esc(s)+'</a>';
 }
-var stageFilter='ALL';
 var search='';
 function effCol(p){return overrides[p.id]||p.column;}
 /* --- the reader's own view: preferences, move history, change banner (P0-15) ---
@@ -374,8 +412,8 @@ var PREF_KEY='{{APP_KEY}}_kanban_prefs';
 function loadPrefs(){try{return JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{};}catch(e){return {};}}
 var prefs=loadPrefs();
 /* The toolbar state is the reader's own view, so it lives in the same single blob as the collapsed lanes
-   (CONTRIBUTING §10 6). Initialised AFTER prefs: the two vars above are declared earlier in the file. */
-stageFilter=prefs.stage||'ALL';
+   and the closed stage blocks (CONTRIBUTING §10 6). Initialised AFTER prefs: the vars above are declared
+   earlier in the file. */
 search=prefs.search||'';
 var hideEmpty=!!prefs.hideempty;
 var sortMode=prefs.sort||'doc';
@@ -501,12 +539,31 @@ function normalizeGoto(go){
   else key=key.replace(/^docs\//,'');
   return {tab:tab,key:key};
 }
+/* A card inside a closed stage block - or inside a collapsed lane - is not in the DOM at all, so a jump
+   from the requirement register or the health panel would have nothing to land on. The documented rule is
+   "expand first, then look" (CONTRIBUTING 10-13): the jump is what the reader asked for, so the block
+   gives way instead of the jump failing silently. Returns true when it changed the board. */
+function expandTo(cardKey){
+  if(cardKey.indexOf('pkg:')!==0)return false;
+  var p=pkgById(cardKey.slice(4));
+  if(!p)return false;
+  var st=p.stage||'';
+  var changed=false;
+  if(!stageOpen(st)){setStageOpen(st,true);changed=true;}
+  var c=prefs.collapsed||{};
+  Object.keys(c).forEach(function(k){if(c[k]&&k.indexOf(st+'/')===0){delete c[k];changed=true;}});
+  if(changed){setPref('collapsed',c);render();}
+  return changed;
+}
 function reveal(tab,key){
   selectTab(tab);
   if(!key)return true;
   var host=document.getElementById('p-'+tab);if(!host)return false;
   var el=null;
   try{el=host.querySelector('[data-key="'+key+'"]');}catch(e){el=null;}
+  if(!el&&tab==='overview'&&expandTo(key)){
+    try{el=host.querySelector('[data-key="'+key+'"]');}catch(e){el=null;}
+  }
   if(!el)return false;
   if(el.scrollIntoView){try{el.scrollIntoView({block:'center'});}catch(e){}}
   el.classList.add('flash');
@@ -574,50 +631,68 @@ function measureHeader(){
 }
 /* Search covers the WHOLE row, not just the package text: a PR number, a requirement id or a status is
    exactly what gets searched for, and none of those were in the haystack before. */
-function text(t){return String(t===undefined||t===null?'':t).replace(/\\s+/g,' ').trim();}
+function text(t){return String(t===undefined||t===null?'':t).replace(/\s+/g,' ').trim();}
 function hit(){if(!search)return true;var s=text([].slice.call(arguments).join(' ')).toLowerCase();return s.indexOf(search.toLowerCase())>=0;}
 function visible(p){
-  if(stageFilter!=='ALL'&&p.stage!==stageFilter)return false;
+  /* Scope is NOT here: the board is partitioned by stage (the stage blocks decide what is on screen), so
+     this predicate answers the search question alone. Keeping the two concerns in one function is what
+     made "filtered by stage" and "filtered by text" indistinguishable in the toolbar's read-out. */
   var reqs=(p.reqs||[]).map(function(r){return r.id+' '+r.title+' '+r.status;}).join(' ');
   return hit(p.id,p.content,p.deps,p.status,p.pr,reqs);
 }
 /* Card order: the document order is the plan's own order and stays the default. The alternatives exist
    because "what shipped last" and "what is numbered last" are the two questions this board gets asked. */
-function prNum(pr){var m=text(pr).match(/#?(\\d+)/);return m?parseInt(m[1],10):-1;}
+function prNum(pr){var m=text(pr).match(/#?(\d+)/);return m?parseInt(m[1],10):-1;}
 function orderedPkgs(list){
   var a=list.slice();
   if(sortMode==='id')a.sort(function(x,y){return String(y.id).localeCompare(String(x.id));});
   else if(sortMode==='pr')a.sort(function(x,y){return prNum(y.pr)-prNum(x.pr);});
   return a;
 }
-function stageList(){
+/* The stage blocks are built from the UNION of the stage table and the packages: a stage that has cards
+   but no row in the timeline still gets a block, so the board degrades instead of silently dropping cards.
+   The order is the plan's own: ascending stage number. */
+function boardStages(){
   var seen={},out=[];
+  (DATA.stages||[]).forEach(function(s){var id=text(s&&s.stage);if(id&&!seen[id]){seen[id]=1;out.push(id);}});
   (DATA.packages||[]).forEach(function(p){if(p.stage&&!seen[p.stage]){seen[p.stage]=1;out.push(p.stage);}});
-  out.sort(function(a,b){return (parseInt(a.replace(/\\D/g,''),10)||0)-(parseInt(b.replace(/\\D/g,''),10)||0);});
+  /* A package whose id carries no stage prefix would otherwise have no block to live in - the one shape
+     that would make a card vanish rather than degrade. */
+  if((DATA.packages||[]).some(function(p){return !p.stage;})&&!seen['']){out.push('');}
+  out.sort(function(a,b){return (parseInt(String(a).replace(/[^0-9]/g,''),10)||0)-(parseInt(String(b).replace(/[^0-9]/g,''),10)||0);});
   return out;
 }
-/* The stage filter is a select, not a row of buttons: 15 stages of buttons pushed everything else onto a
-   second row. Each option carries its package count. NOTE: the select is #stagefilter, not #stages -
-   #stages is the panel's own table host in this repository, and two elements cannot share an id. */
-function renderStages(){
-  var sel=document.getElementById('stagefilter');if(!sel)return;
-  var stages=stageList();
-  /* The plan can lose a stage while the page is open: fall back to "all" instead of showing an empty
-     board with no explanation. */
-  if(stageFilter!=='ALL'&&stages.indexOf(stageFilter)<0)stageFilter='ALL';
-  sel.innerHTML='';
-  var mk=function(label,val){var o=document.createElement('option');o.value=val;o.textContent=label;if(stageFilter===val)o.selected=true;return o;};
-  sel.appendChild(mk('全部阶段','ALL'));
-  stages.forEach(function(s){var n=DATA.packages.filter(function(p){return p.stage===s;}).length;sel.appendChild(mk(s+'（'+n+'）',s));});
+function stageMeta(id){var hit=null;(DATA.stages||[]).forEach(function(s){if(text(s&&s.stage)===id)hit=s;});return hit||{};}
+/* Which block is OPEN by default. The rule reads the in-progress signal (inProgressStage) and NEVER a
+   stage number: a hard-coded one keeps the reader on history the moment the stage advances, and the same
+   signal drives "next step" and the plan baseline - two answers to one question is what R-Plan-6 forbids.
+   With no stage in progress nothing is collapsed: a reader standing between two stages must not lose the
+   one that just finished. A hand decision is remembered per stage, exactly like a lane collapse. */
+function stageOpen(id){
+  var ov=(prefs.stageopen||{});
+  if(Object.prototype.hasOwnProperty.call(ov,id))return !!ov[id];
+  var cur=inProgressStage();
+  return !cur||text(cur.stage)===id;
 }
-/* The toolbar line spells out what the filter is doing, so a filtered (or empty) screen is never
-   ambiguous - and it is explicit about Health being exempt. */
+function setStageOpen(id,open){
+  var ov=prefs.stageopen||{};
+  ov[id]=!!open;
+  setPref('stageopen',ov);
+}
+function toggleStageOpen(id){setStageOpen(id,!stageOpen(id));render();}
+/* The toolbar line spells out what is on screen, so a scoped - or empty - board is never ambiguous, and
+   it is explicit about Health being exempt. The stage scope is named because a collapsed block would
+   otherwise read as a board that lost its cards. */
 function updateHits(){
   var el=document.getElementById('hits');if(!el)return;
-  if(!search){el.textContent='';return;}
-  if(activeTab==='overview'){el.textContent='匹配 '+DATA.packages.filter(function(p){return visible(p);}).length+' / '+DATA.packages.length+' 张卡片';}
+  if(activeTab==='overview'){
+    var cur=inProgressStage();
+    var scope=cur?('当前阶段 '+text(cur.stage)+'（其它阶段已折叠）'):'无进行中阶段（全部阶段已展开）';
+    var n=(DATA.packages||[]).filter(function(p){return visible(p);}).length;
+    el.textContent=scope+(search?(' · 匹配 '+n+' / '+DATA.packages.length+' 张卡片'):'');
+  }
   else if(activeTab==='health'){el.textContent='「健康」页签不参与筛选';}
-  else{el.textContent='筛选：'+search;}
+  else{el.textContent=search?('筛选：'+search):'';}
 }
 /* --- render entry (the only door) ---
    Re-renders go through render(), never renderBoard() directly: that is what makes two guarantees hold
@@ -667,24 +742,74 @@ function render(){
 /* Every panel is small (a few hundred rows at most), so a full re-render on each data change stays
    cheaper than tracking dirty panels - and it cannot leave a stale panel behind. */
 function renderEverything(){
-  renderStages();renderKpis();renderBoard();renderStagesPanel();renderTimelinePanel();renderGatesPanel();renderDecisions();renderDocMap();
+  renderKpis();renderBoard();renderStagesPanel();renderTimelinePanel();renderGatesPanel();renderDecisions();renderDocMap();
   renderHealthPanel();renderNextPanel();renderScopePanel();renderReqPanel();updateHits();
   /* The notice bar is rendered HERE rather than at every action that can change it: it is a pure view of
      (overrides, history), so rendering it with everything else means a live sync that invalidates an
      override updates it as well, and a call site can no longer be forgotten. */
   updateOverridesBanner();
 }
+/* The board is partitioned by stage (CONTRIBUTING 10-13): one block per stage, and the block carrying the
+   in-progress code point is the only one OPEN by default - past and future stages stay reachable (click
+   the header) but cost one line each, so "where are we now" is answerable without scrolling past history.
+   A closed block still shows its own numbers, and the chrome below the blocks belongs to the PAGE, not to
+   a block, so it sits outside the loop. */
 function renderBoard(){
   var board=document.getElementById('board');board.innerHTML='';
+  var readyIds={};(readyPkgs()||[]).forEach(function(p){readyIds[p.id]=1;});
+  boardStages().forEach(function(id){
+    var mine=(DATA.packages||[]).filter(function(p){return (p.stage||'')===id;});
+    var meta=stageMeta(id);
+    var open=stageOpen(id);
+    var done=mine.filter(function(p){return effCol(p)==='done';}).length;
+    var ready=mine.filter(function(p){return readyIds[p.id];}).length;
+    var sec=document.createElement('section');
+    sec.className='stagesec'+(open?'':' collapsed');
+    sec.dataset.stage=id;
+    /* The header IS the block's control - it is the one element of a block that is always there (cards
+       come and go) - and it carries this stage's own numbers, so a closed stage still answers "how far
+       along is it". Focusable, role=button, Enter / Space: a mouse-only control would make the collapse a
+       dead end on a keyboard. Same shape as a lane header. */
+    var head=document.createElement('h2');
+    head.tabIndex=0;
+    head.setAttribute('role','button');
+    head.setAttribute('aria-expanded',open?'true':'false');
+    head.title=open?'收起本阶段':'展开本阶段';
+    head.innerHTML='<span class="sname">'+esc(id||'\u2014')+'</span>'
+      +(meta.status?('<span class="sstat">'+esc(meta.status)+'</span>'):'')
+      +'<span class="scount">工作包 '+done+' / '+mine.length+(ready?(' · 可开工 '+ready):'')+'</span>';
+    head.addEventListener('click',function(){toggleStageOpen(id);});
+    head.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleStageOpen(id);}});
+    sec.appendChild(head);
+    board.appendChild(sec);
+    /* A closed block renders its header and NOTHING else: its cards are not built at all, so a finished
+       stage is genuinely cheaper, not merely hidden with CSS. */
+    if(!open)return;
+    var row=document.createElement('div');row.className='board';sec.appendChild(row);
+    buildLanes(row,id);
+  });
+  /* The decisions list used to sit at the bottom of this page; it is its own tab now, which is what
+     turns the board into one view of a dimension instead of a page with everything stacked on it. */
+  document.getElementById('gen').textContent=DATA.generatedAt;
+  document.getElementById('meta').textContent='来源：'+DATA.sources.join(' - ');
+  /* The header's height is what the sticky table header pins below, and it changes with the meta line. */
+  measureHeader();
+}
+/* The lanes of ONE stage block. Its own function so the block header and the page chrome stay out of the
+   lane loop, and so the collapsed-key arithmetic has a single home. */
+function buildLanes(row,stage){
   var counts={};COLS.forEach(function(c){counts[c.k]=0;});
-  DATA.packages.forEach(function(p){if(visible(p))counts[effCol(p)]++;});
+  DATA.packages.filter(function(p){return (p.stage||'')===stage;}).forEach(function(p){if(visible(p))counts[effCol(p)]++;});
   COLS.forEach(function(c){
     /* The cancelled lane only appears when something is actually cancelled: an always-empty column is
        noise, and 取消 / 范围外 is a low-frequency state (CONTRIBUTING §9.3). */
     /* The cancelled lane is hidden whenever it is empty - that is a documented rule (CONTRIBUTING §9.3),
        not a preference. Every OTHER empty lane follows the toolbar's "hide empty" option. */
     if(counts[c.k]===0&&(c.k==='closed'||hideEmpty))return;
-    var collapsed=isCollapsed(c.k);
+    /* The collapse key is STAGE-QUALIFIED (`P1/todo`): the lanes exist once per stage block, so a plain
+       lane key would make closing "未开始" in one stage silently close it in every other stage. */
+    var laneKey=stage+'/'+c.k;
+    var collapsed=isCollapsed(laneKey);
     var colEl=document.createElement('div');colEl.className='col';colEl.dataset.col=c.k;
     if(collapsed)colEl.classList.add('collapsed');
     colEl.innerHTML='<h2>'+c.l+'<span class="count">'+counts[c.k]+'</span></h2>';
@@ -697,8 +822,8 @@ function renderBoard(){
       h2.setAttribute('role','button');
       h2.setAttribute('aria-expanded',collapsed?'false':'true');
       h2.title=collapsed?'展开本泳道':'收起本泳道';
-      h2.addEventListener('click',function(){toggleCollapse(c.k);});
-      h2.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleCollapse(c.k);}});
+      h2.addEventListener('click',function(){toggleCollapse(laneKey);});
+      h2.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleCollapse(laneKey);}});
     }
     /* The order is the reader's choice (toolbar); the document order stays the default. */
     orderedPkgs(DATA.packages).forEach(function(p){
@@ -706,7 +831,8 @@ function renderBoard(){
          collapsed board is genuinely cheaper, not merely hidden with CSS. The count above still counts
          every visible package. */
       if(collapsed)return;
-      if(effCol(p)!==c.k||!visible(p))return;
+      /* Every stage block draws its own lanes, so a card must also belong to THIS block. */
+      if((p.stage||'')!==stage||effCol(p)!==c.k||!visible(p))return;
       var card=document.createElement('div');card.className='card';card.draggable=true;card.dataset.id=p.id;
       /* The card is the destination of "jump to this package" - the key reveal() looks a card up by. */
       card.dataset.key='pkg:'+p.id;
@@ -754,20 +880,14 @@ function renderBoard(){
       dragging=false;
       render();
     });
-    board.appendChild(colEl);
+    row.appendChild(colEl);
   });
-  /* The decisions list used to sit at the bottom of this page; it is its own tab now, which is what
-     turns the board into one view of a dimension instead of a page with everything stacked on it. */
-  document.getElementById('gen').textContent=DATA.generatedAt;
-  document.getElementById('meta').textContent='来源：'+DATA.sources.join(' - ');
-  /* The header's height is what the sticky table header pins below, and it changes with the meta line. */
-  measureHeader();
 }
 
 /* --- views (P0-11) ---
    Each panel is a pure function of DATA: nothing here writes to a doc, and a missing source degrades to
    an explanatory line instead of an error (CONTRIBUTING section 10, item 2). */
-function table(headers,rows,keys){
+function table(headers,rows,keys,details){
   var out='<table class="grid"><thead><tr>';
   headers.forEach(function(h){out+='<th>'+h+'</th>';});
   out+='</tr></thead><tbody>';
@@ -778,6 +898,11 @@ function table(headers,rows,keys){
     out+='<tr'+k+'>';
     r.forEach(function(c){out+='<td>'+c+'</td>';});
     out+='</tr>';
+    /* The optional fourth argument is a SECOND row for one register line: the columns stay narrow - the long
+       ones (evidence, remark) are what turned this panel into a horizontally scrolled wall - and the full
+       text is one click away, on the row it belongs to. A detail row carries no key: it is not a target. */
+    var d=(details&&details[i])?details[i]:'';
+    if(d)out+='<tr class="detail hidden"><td colspan="'+r.length+'">'+d+'</td></tr>';
   });
   return out+'</tbody></table>';
 }
@@ -799,26 +924,72 @@ function allReqs(){
    requirement at a time, inside a package card. Every way OUT of a row is a way there - the document that
    holds it, the package that delivers it, the stage it belongs to - and a row mapped to no package says so
    instead of vanishing (that fact is accounted for under 决议, where the unassigned list lives). */
+/* The FR-x.y ids the reference cell already carries, shown as chips instead of being buried in prose: this
+   adds no FACT (the register's cell is the source) and stops "how many sub-items does this group have" from
+   requiring a document round-trip. Each chip lands on the same row its requirement id lands on. */
+function frChips(r){
+  var html=mdInline(r.title);
+  if(!r.doc)return html;
+  return html.replace(/<code>((?:FR|NFR)-[0-9]+(?:\.[0-9]+)*)<\/code>/g,function(all,tok){
+    return '<button type="button" class="frchip" data-doc="'+esc(r.doc)+'" data-anchor="'+esc(r.id)+'" title="打开 '+esc(r.doc)+' 的 '+esc(r.id)+' 行">'+tok+'</button>';
+  });
+}
 function renderReqPanel(){
   var host=document.getElementById('req-rows');if(!host)return;
   var reqs=allReqs();
   var rtm=String(DATA.rtm||'');
-  var rows=reqs.map(function(r){
-    var id=rtm
-      ? ('<span data-goto="docs:doc:'+esc(rtm)+'" title="在「文档」页签定位那份需求表">'+esc(r.id)+'</span>')
-      : esc(r.id);
+  /* The caption says where the semantics live BEFORE the reader looks for them: this panel maps and tracks,
+     it does not restate (the register's own header says the same), and the id is the way INTO that text. */
+  var head=document.getElementById('req-head');
+  if(head){
+    var rtmLink=rtm
+      ? ('<a href="'+esc(docUrl(rtm))+'" data-doc="'+esc(rtm)+'" title="在抽屉中打开追溯表原文">'+esc(rtm)+'</a>')
+      : '需求跟踪矩阵';
+    head.innerHTML='需求（'+rtmLink+' 追溯表）—— 需求语义以引用文档为准（本页只做映射与状态）；点编号打开其对应行，点 FR-x.y 看子项。'
+      +'<b>「未映射」= 尚未按过程登记</b>（无工作包、无证据），它本身<b>不说明实现与否</b>：存量功能可能是"已实现但未走过程"（状态列标 <b>🟦</b> 存量已实现 / <b>✅</b> 包级交付），逐条证据强度见「验收 / 证据」与「备注」（展开「详情」）。';
+  }
+  var rows=[],details=[],keys=[];
+  reqs.forEach(function(r){
+    /* The id is the way INTO the requirement: its semantics live in the document the register points at, so
+       the link opens that document AT the row. When the reference resolves to nothing the id stays PLAIN
+       TEXT - an invented link 404s, and a silent one reads as "the board hides the detail" (the gate asserts
+       the model resolved every reference it names). */
+    var id=r.doc
+      ? ('<a class="rid" href="'+esc(docUrl(r.doc))+'" data-doc="'+esc(r.doc)+'" data-anchor="'+esc(r.id)+'" title="打开 '+esc(r.doc)+' 的 '+esc(r.id)+' 行（Ctrl/Command 点击或中键：在新标签页打开原始文件）">'+esc(r.id)+'</a>')
+      : ('<span class="rid" title="该行的引用未指向可解析的文档章节">'+esc(r.id)+'</span>');
     var pkgs=(r.pkgIds&&r.pkgIds.length)
       ? r.pkgIds.map(function(p){return '<b data-goto="overview:pkg:'+esc(p)+'" title="在「工作包」页签定位该卡片">'+esc(p)+'</b>';}).join('、')
-      : '<span class="dim">未映射</span>';
+      : '<span class="dim" title="该需求尚未映射到工作包：只说明「未按过程登记」（无工作包 / 无证据），不说明实现与否 —— 见该行备注">未映射</span>';
     var stage=r.stage
       ? ('<span data-goto="stages:stage:'+esc(r.stage)+'" title="在「阶段」页签定位该阶段">'+esc(r.stage)+'</span>')
       : '';
-    return [id, mdInline(r.title), pkgs, stage,
-            '<span class="dot '+colOf(r.status)+'"></span> '+esc(r.status), mdInline(r.evidence||''), mdInline(r.note||'')];
+    var hasDetail=!!((r.evidence&&r.evidence.length)||(r.note&&r.note.length));
+    var toggle=hasDetail
+      ? '<button type="button" class="dtoggle" aria-expanded="false" title="展开这一行的验收 / 证据与备注">详情</button>'
+      : '<span class="dim">—</span>';
+    keys.push('req:'+r.id);
+    rows.push([id, frChips(r), pkgs, stage,
+               '<span class="dot '+colOf(r.status)+'"></span> '+esc(r.status), toggle]);
+    details.push(hasDetail
+      ? ('<div class="drow"><b>验收 / 证据</b> '+mdInline(r.evidence||'')+'</div>'
+        +'<div class="drow"><b>备注</b> '+mdInline(r.note||'')+'</div>')
+      : null);
   });
   host.innerHTML=rows.length
-    ? table(['需求 ID','需求','工作包','阶段','状态','验收 / 证据','备注'],rows,reqs.map(function(r){return 'req:'+r.id;}))
+    ? table(['需求 ID','需求（§ 引用）','工作包','阶段','状态','详情'],rows,keys,details)
     : '<div class="empty">未找到需求跟踪矩阵，或该文档还没有需求条目。</div>';
+  /* The toggles are wired here rather than built with state in the markup: the handler looks up the NEXT
+     row, which is exactly where table() puts the detail row, so the two cannot fall out of step. */
+  Array.prototype.forEach.call(host.querySelectorAll('.dtoggle'),function(b){
+    b.addEventListener('click',function(){
+      var tr=b.closest?b.closest('tr'):null;
+      var d=tr?tr.nextElementSibling:null;
+      if(!d||!d.classList.contains('detail'))return;
+      var open=!d.classList.contains('hidden');
+      d.classList.toggle('hidden',open);
+      b.setAttribute('aria-expanded',open?'false':'true');
+    });
+  });
 }
 /* A decision is "resolved" when its status carries the tick - the same reading rule as CONTRIBUTING 9.3,
    so the count and the lane can never disagree. */
@@ -842,7 +1013,8 @@ function renderKpis(){
   out+=kpiTile('未映射需求', (DATA.unassigned||[]).length, '', 'decisions:');
   out+=kpiTile('时间线条目', (DATA.timeline||[]).length, '', 'timeline:');
   out+=kpiTile('文档', (DATA.docmap||[]).length, '', 'docs:');
-  out+=kpiTile('可开工', readyPkgs().length, openPkgs().length+' 未完成', 'overview:');
+  var db=decisionBlockedPkgs(), dbn=openPkgs().filter(function(p){return db[p.id];}).length;
+  out+=kpiTile('可开工', readyPkgs().length, openPkgs().length+' 未完成'+(dbn?('，其中 '+dbn+' 待决议'):''), 'overview:');
   out+=kpiTile('开放缺口', openGaps().length, scopeItems().length+' 条登记', 'scope:');
   out+=kpiTile('阶段', (DATA.stages||[]).length, '', 'stages:');
   host.innerHTML=out;
@@ -930,7 +1102,7 @@ function renderDecisions(){
    3. Same-origin by construction: only a single docs/*.md leaf name ever reaches the drawer, and every
       other href in a document is shown as text rather than turned into a link that might 404. */
 var DOC_DIR='../docs/';
-var docCache={},curDoc=null,docOpener=null;
+var docCache={},curDoc=null,docOpener=null,curAnchor='';
 function docBare(name){return String(name||'').replace(/^\.\.\//,'').replace(/^docs\//,'').replace(/\s*\(.*\)\s*$/,'');}
 function docUrl(name){return DOC_DIR+docBare(name);}
 function docLabel(name){
@@ -959,9 +1131,32 @@ function openDoc(name,push){
   focusEl('dclose');
   return true;
 }
+/* --- landing on the row a reference points at ---
+   "Open the document" and "show me THAT row" are two different requests. The second one scrolls to the row
+   and pulses it - the same pulse an in-board jump uses, so the two read as one behaviour rather than two.
+   The landing is its own function because the drawer body may not be in the DOM yet when the link is
+   clicked (the first open fetches it): loadDoc() calls it again once the document arrives, so an anchor can
+   never silently do nothing - the one failure mode a link must not have. */
+function landAnchor(anchor){
+  if(!anchor)return true;
+  var body=document.getElementById('dbody');if(!body)return false;
+  var el=null;
+  try{el=body.querySelector('[id="'+anchor+'"]');}catch(e){el=null;}
+  if(!el)return false;
+  if(el.scrollIntoView){try{el.scrollIntoView({block:'center'});}catch(e){}}
+  el.classList.add('flash');
+  setTimeout(function(){el.classList.remove('flash');},2600);
+  return true;
+}
+function openDocAt(name,anchor,push){
+  curAnchor=anchor||'';
+  if(!openDoc(name,push))return false;
+  return landAnchor(curAnchor);
+}
 function closeDoc(push){
   if(!curDoc)return;
   curDoc=null;
+  curAnchor='';
   var dr=document.getElementById('drawer');
   if(dr){dr.classList.remove('open');dr.setAttribute('aria-hidden','true');}
   var mk=document.getElementById('dmask');if(mk)mk.classList.remove('open');
@@ -979,7 +1174,9 @@ function loadDoc(name){
   }).then(function(txt){
     var html='<div class="md">'+mdToHtml(txt)+'</div>';
     docCache[name]=html;
-    if(curDoc===name)document.getElementById('dbody').innerHTML=html;
+    /* A cached body is injected synchronously, but the first read arrives late: the anchor is applied here
+       again so "open at row R-5" works on a cold cache too. */
+    if(curDoc===name){document.getElementById('dbody').innerHTML=html;landAnchor(curAnchor);}
   }).catch(function(e){docFailed(name,(e&&e.message)?e.message:'读取失败');});
 }
 /* The degraded path is spelled out rather than left blank: "the browser refused to read a local file" is a
@@ -1019,6 +1216,16 @@ function mdAlign(cells){
     var l=c.charAt(0)===':',r=c.charAt(c.length-1)===':';
     return (l&&r)?'center':(r?'right':(l?'left':''));
   });
+}
+/* A table row can be ADDRESSED: its first cell carries the id the register already uses (a requirement id
+   such as `R-5` in the spec, and the same token in the traceability register itself), so the renderer stamps
+   THAT token onto the row and a link elsewhere can land on the row instead of on the document's top.
+   Deliberately NARROW: only the requirement-id shape is stamped. A generic "first cell" rule would collide
+   the moment two tables in one document share a leading token, and a duplicate id makes a jump land on
+   whichever row came first - a wrong answer with no symptom. */
+function mdRowAnchor(cell){
+  var t=String(cell===undefined||cell===null?'':cell).replace(/[`*]/g,'').trim();
+  return /^R-[A-Za-z0-9-]+$/.test(t)?t:'';
 }
 function mdInline(s){
   var codes=[];
@@ -1077,7 +1284,11 @@ function mdToHtml(src){
         return '<'+tag+(al[j]?(' style="text-align:'+al[j]+'"'):'')+'>'+mdInline(v)+'</'+tag+'>';
       };
       out.push('<table><thead><tr>'+head.map(function(c,j){return cell(c,j,'th');}).join('')+'</tr></thead><tbody>'
-        +rows.map(function(r){return '<tr>'+head.map(function(_,j){return cell(r[j],j,'td');}).join('')+'</tr>';}).join('')
+        +rows.map(function(r){
+          /* The row's own id is its anchor: that is what a link from the board lands on (mdRowAnchor). */
+          var a=mdRowAnchor(r[0]);
+          return '<tr'+(a?(' id="'+esc(a)+'"'):'')+'>'+head.map(function(_,j){return cell(r[j],j,'td');}).join('')+'</tr>';
+        }).join('')
         +'</tbody></table>');
       continue;
     }
@@ -1135,9 +1346,25 @@ var STALE_DAYS=7;   /* a document this many days behind the active stage plan is
 function doneIds(){var o={};(DATA.packages||[]).forEach(function(p){if(effCol(p)==='done')o[p.id]=true;});return o;}
 function pkgIdsIn(cell){var out=[],re=/P\d+-\d+/g,m;while((m=re.exec(String(cell||'')))){if(out.indexOf(m[0])<0)out.push(m[0]);}return out;}
 function openPkgs(){return (DATA.packages||[]).filter(function(p){return effCol(p)!=='done'&&effCol(p)!=='closed';});}
-function readyPkgs(){var done=doneIds();return openPkgs().filter(function(p){if(effCol(p)!=='backlog')return false;return pkgIdsIn(p.deps).every(function(d){return done[d];});});}
+/* A package that an OPEN decision names in its "blocks" cell is NOT startable, even when every PACKAGE
+   dependency is done: what it waits on is the DECISION, and a plan that says so must not be overruled by
+   a board that only reads the dependency column. Without this, a stage whose packages all wait on
+   section-8 questions still reads "可开工 N" - a claim the plan itself contradicts (the dep text names
+   questions, not packages, so the id scan finds nothing and every() is vacuously true). */
+function decisionBlockedPkgs(){
+  var out={};
+  openDecisions().forEach(function(b){pkgIdsIn(b.blocks).forEach(function(id){out[id]=true;});});
+  return out;
+}
+function readyPkgs(){var done=doneIds(),db=decisionBlockedPkgs();return openPkgs().filter(function(p){if(effCol(p)!=='backlog')return false;if(db[p.id])return false;return pkgIdsIn(p.deps).every(function(d){return done[d];});});}
 function blockingDeps(p){var done=doneIds();return pkgIdsIn(p.deps).filter(function(d){return !done[d];});}
-function activeStage(){var s=(DATA.stages||[]).filter(function(x){return String(x.status||'').indexOf('\uD83D\uDD04')>=0;});return s.length?s[0]:((DATA.stages||[])[0]||null);}
+/* The ONE place the in-progress signal is read (CONTRIBUTING 10-13). It is shared on purpose: the board's
+   default-open block, the "next step" basis and the document freshness check must never point at different
+   stages - two readings of one fact is exactly what R-Plan-6 forbids. `activeStage` keeps the older
+   fallback (the first registered stage) for the callers that need a document either way; the board asks
+   inProgressStage() because "no stage in progress" is a state it must SHOW, not paper over. */
+function inProgressStage(){var s=(DATA.stages||[]).filter(function(x){return String(x.status||'').indexOf('\uD83D\uDD04')>=0;});return s.length?s[0]:null;}
+function activeStage(){return inProgressStage()||((DATA.stages||[])[0]||null);}
 function planBaseline(){
   var s=activeStage();if(!s)return null;
   var leaf=String(s.plan||'').replace(/`/g,'').trim();
@@ -1468,7 +1695,9 @@ document.addEventListener('click',function(e){
         if(!(e.metaKey||e.ctrlKey||e.shiftKey||e.button>0)){
           if(e.preventDefault)e.preventDefault();
           docOpener=t;
-          openDoc(n);
+          /* data-anchor is optional: without it this is the plain "open the document" link. A chip lands on
+             the same row its requirement id lands on, so the two cannot drift apart. */
+          openDocAt(n,t.getAttribute('data-anchor')||'');
         }
         return;
       }
@@ -1499,13 +1728,11 @@ document.addEventListener('keydown',function(e){
 var searchBox=document.getElementById('search');
 if(searchBox){searchBox.value=search;searchBox.addEventListener('input',function(e){setSearch(e.target.value);});}
 function setSearch(v){search=v||'';setPref('search',search);renderEverything();}
-/* The toolbar's tools write straight into the preferences blob, so a reader who filters by stage, picks
-   a sort order and hides empty lanes gets that view back on the next visit. The reset button sits next
-   to them but clears the hand-moves, not the view. */
-var stageSel=document.getElementById('stagefilter');
-if(stageSel){
-  stageSel.addEventListener('change',function(e){stageFilter=e.target.value||'ALL';setPref('stage',stageFilter==='ALL'?'':stageFilter);render();});
-}
+/* The toolbar's tools write straight into the preferences blob, so a reader who opens or closes a stage
+   block, picks a sort order and hides empty lanes gets that view back on the next visit. The reset button
+   sits next to them but clears the hand-moves, not the view. There is no stage control to wire here: the
+   block headers are wired where they are built (renderBoard), which is also why they cannot go missing
+   while the rest of the toolbar is edited. */
 var optEmpty=document.getElementById('opt-empty');
 if(optEmpty){
   optEmpty.checked=hideEmpty;
