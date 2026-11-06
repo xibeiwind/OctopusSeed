@@ -30,6 +30,7 @@ OctopusSeed/
 │                             / spec-driven 的逐维度对比，含强度快照、缺口与补强建议、适用性判定
 ├─ manifest.json            ← 机器可读清单（init.ps1 与 template-check.ps1 消费）
 ├─ init.ps1                 ← 生成器：按参数渲染到目标目录并输出启用清单
+├─ INIT.md                  ← 生成器使用说明：参数表 / 各栈默认值 / 示例 / 排错（用户向）
 ├─ template-check.ps1       ← 模板自检：占位符 / 清单双向一致性 / 文档引用 / 冒烟生成
 ├─ .gitignore               ← 本仓自身的忽略规则（它是模板仓，不含构建产物）
 ├─ .codebuddy/rules/        ← 本仓自身的 AI 规则：改模板的纪律（"吃自己的狗粮"）
@@ -60,6 +61,8 @@ powershell -ExecutionPolicy Bypass -File init.ps1 -Target C:\work\MyApp -Project
 # 3) 模板自身自检（改了模板后必跑）
 powershell -ExecutionPolicy Bypass -File template-check.ps1 -Smoke
 ```
+
+完整参数表、各栈默认值、`-DryRun` / `-Force` 语义与常见报错见 [`INIT.md`](./INIT.md)。
 
 生成后的**人工动作**（生成器会再次打印，共 6 步）：
 
