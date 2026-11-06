@@ -104,6 +104,34 @@ html[data-theme="dark"] .icon-btn .icon-moon{display:none;}
 .kpi .k{font-size:11px;color:var(--muted);}
 .kpi .v{font-size:20px;font-weight:600;margin-top:2px;}
 .kpi .v small{font-size:12px;font-weight:400;color:var(--muted);}
+/* --- the stage accordion (2026-11-06) ---
+   The plan groups its packages by stage and the lanes group them by status; BOTH groupings are real, so the
+   page nests one inside the other instead of picking one: each stage is a disclosure whose HEAD is that
+   stage's own summary (state, progress, done / total) and whose BODY is the lanes holding that stage's cards.
+   The head is the control - it opens and closes what is under it. It is NOT a second filter: narrowing the
+   board to one stage stays the toolbar select's job (stageFilter), so there is exactly one owner per decision.
+   Status text comes from the stage table's cell (CONTRIBUTING section 10, item 13: the in-progress stage may
+   only come from the in-progress row there); a cell that holds only a code point is spelled out.
+   Colours: the head sits on --card (an asserted ink pair) and the fill reuses --done on the --col track. */
+.stagebar{display:flex;flex-direction:column;gap:12px;margin:0 20px 20px;}
+/* min-width:0 is load-bearing: a flex item defaults to min-width:auto, so the stage would refuse to shrink
+   below the four lanes' minimum widths and push the whole PAGE sideways instead of letting .board wrap. */
+.stage{background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:var(--panel-shadow);min-width:0;}
+.shead{display:flex;align-items:center;gap:10px;margin:0;padding:9px 14px;font-size:13px;cursor:pointer;}
+.shead:hover .sid{text-decoration:underline;}
+.shead:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+/* The caret is a CSS triangle, not a glyph: a rotated character depends on the font having it, and the
+   direction of the rotation is the only thing that tells an open disclosure from a closed one. */
+.shead .caret{width:0;height:0;flex:0 0 auto;border-left:6px solid var(--muted);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s;}
+.shead[aria-expanded="true"] .caret{transform:rotate(90deg);}
+.shead .sid{font-weight:700;color:var(--blue);min-width:36px;}
+.shead .sst{color:var(--muted);min-width:96px;}
+.shead .scnt{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.shead .bar{width:140px;margin:0;}
+.sbody{border-top:1px solid var(--line);}
+/* The lanes of one stage keep the board's own layout, minus the page gutter: the disclosure already
+   supplies the inset, so .board's 20px padding would double it. */
+.sbody .board{padding:12px 14px 14px;}
 .section{margin:0 20px 24px;background:var(--card);border-radius:8px;padding:14px;box-shadow:var(--panel-shadow);}
 .section h2{margin:0 0 10px;font-size:15px;}
 .tbl-wrap{max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:6px;}
@@ -298,7 +326,11 @@ tr.flash>td,.card.flash,.qid.flash{animation:flashbg 1.3s ease-out 2;}
 <div class="banner hidden" id="ovbanner" role="status" aria-live="polite"></div>
 <div class="panel" id="p-overview" role="tabpanel" aria-labelledby="tab-overview">
 <div class="kpis" id="kpis"></div>
-<div class="board" id="board"></div>
+<!-- The plan groups its packages by stage and the lanes group them by status. The page NESTS one inside the
+     other rather than picking one: each stage is a disclosure whose head is that stage's own summary and
+     whose body is the lanes holding its cards. Narrowing the board to a single stage stays the toolbar
+     select's job - the head only opens and closes. -->
+<div class="stagebar" id="stagebar"></div>
 </div>
 <div class="panel hidden" id="p-reqs" role="tabpanel" aria-labelledby="tab-reqs">
 <div class="section"><h2>需求（docs/需求跟踪矩阵.md 追溯表 —— 点编号在该文档定位它）</h2><div class="tbl-wrap" id="req-rows"></div></div>
@@ -610,6 +642,160 @@ function renderStages(){
   sel.appendChild(mk('全部阶段','ALL'));
   stages.forEach(function(s){var n=DATA.packages.filter(function(p){return p.stage===s;}).length;sel.appendChild(mk(s+'（'+n+'）',s));});
 }
+/* --- the stage accordion (2026-11-06) ---
+   One disclosure per stage, in plan order. Each fact is read from ONE place:
+     status = the stage table's own cell (CONTRIBUTING section 10, item 13 - the in-progress stage is the
+              in-progress ROW there, never a re-derivation from the cards);
+     counts = the SAME packages the lanes show, after the reader's own moves (effCol), so the head cannot
+              disagree with the columns opened under it;
+     open   = the reader's own choice, defaulting to the plan (item 13 again: only the in-progress row can
+              say which stage is being worked on; with no such row every stage opens).
+   Narrowing the board to ONE stage is the toolbar select's job, not the head's - one owner per decision.
+   A stage that has packages but no row in the stage table (a plan written before its overview row) is
+   described by its packages; that is a fallback, and it deliberately does not touch activeStage(). */
+function stageIds(){
+  var seen={},out=[];
+  (DATA.stages||[]).forEach(function(s){
+    var id=String(s.stage||'').replace(/\*/g,'').trim();
+    if(id&&!seen[id]){seen[id]=1;out.push(id);}
+  });
+  (DATA.packages||[]).forEach(function(p){if(p.stage&&!seen[p.stage]){seen[p.stage]=1;out.push(p.stage);}});
+  out.sort(function(a,b){return (parseInt(a.replace(/\D/g,''),10)||0)-(parseInt(b.replace(/\D/g,''),10)||0);});
+  return out;
+}
+function stageStatus(id){
+  var hit=(DATA.stages||[]).filter(function(s){return String(s.stage||'').replace(/\*/g,'').trim()===id;})[0];
+  if(hit&&hit.status)return hit.status;   /* the table's own cell - it is the authority, not a re-derivation */
+  var mine=(DATA.packages||[]).filter(function(p){return p.stage===id;});
+  if(!mine.length)return '';
+  if(!mine.some(function(p){return effCol(p)!=='done'&&effCol(p)!=='closed';}))return '\u2705 已完成';
+  if(mine.some(function(p){return effCol(p)==='blocked';}))return '\u23F8 阻塞';
+  if(mine.some(function(p){return effCol(p)==='progress';}))return '\uD83D\uDD04 进行中';
+  return '\u2B1C 未开始';
+}
+/* The stage table's status cell holds only the code point - the caption lives in its note column - so a raw
+   copy would show a bare glyph: unreadable at a glance, and silent to a screen reader. The same mapping as
+   colOf() puts the words back; a cell that already spells the state out is passed through untouched. */
+function stageText(raw){
+  var s=String(raw||'').trim();
+  if(!s)return '';
+  var words=s.replace(/[\u2705\u23F8\u274C\u2B1C]|\uD83D\uDD04/g,'').trim();
+  if(words)return s;
+  return {done:'已完成',progress:'进行中',blocked:'阻塞 / 待外部条件',closed:'已取消'}[colOf(s)]||'未开始';
+}
+/* The stage table's in-progress row is the ONLY source of "which stage is being worked on" (item 13). It
+   decides which disclosure is open by default. Note it does NOT fall back to the first stage - unlike
+   activeStage(), which answers a different question ("which plan is the baseline") and must always name one.
+   With no in-progress row every stage opens: a page of closed headers answers nothing and costs a click each. */
+function activeStageId(){
+  var hit=(DATA.stages||[]).filter(function(x){return String(x.status||'').indexOf('\uD83D\uDD04')>=0;})[0];
+  return hit?String(hit.stage||'').replace(/\*/g,'').trim():'';
+}
+function stageOpenDefault(id){var a=activeStageId();return a?(id===a):true;}
+/* `prefs.stages` stores the reader's own choice and nothing else: writing the DEFAULT into it would freeze
+   it, so the day the stage in progress moves, every stored value would contradict the plan. */
+function isStageCollapsed(id){
+  var s=(prefs.stages||{});
+  return Object.prototype.hasOwnProperty.call(s,id)?!!s[id]:!stageOpenDefault(id);
+}
+function toggleStage(id){
+  var s=(prefs.stages||{});
+  s[id]=!isStageCollapsed(id);
+  setPref('stages',s);
+  render();
+}
+/* One card, built in one place: the lanes of every stage use it, so a card cannot look different per stage. */
+function buildCard(p){
+  var card=document.createElement('div');card.className='card';card.draggable=true;card.dataset.id=p.id;
+  /* The card is the destination of "jump to this package" - the key reveal() looks a card up by. */
+  card.dataset.key='pkg:'+p.id;
+  /* Focusable so a lane move has a keyboard path as well as a drag one; the hint rides on the title
+     instead of a new toolbar. */
+  card.tabIndex=0;
+  card.title='可拖动；也可聚焦后按 Alt+← / Alt+→ 移动，Ctrl+Z 撤销上一步';
+  var html='<div class="pkg">'+esc(p.id)+'</div>';
+  html+='<div class="title">'+esc(p.content)+'</div>';
+  if(p.deps&&p.deps!=='\u2014')html+='<div class="deps">依赖：'+esc(p.deps)+'</div>';
+  html+='<div class="status">'+esc(p.status)+(p.pr?' - '+prHtml(p.pr):'')+'</div>';
+  if(p.reqs&&p.reqs.length){
+    html+='<div class="reqs">';
+    p.reqs.forEach(function(r){
+      /* The requirement id in a card is the reverse link into the 需求 panel: the card says where a
+         requirement is delivered, the register row says everything else about it. */
+      html+='<div class="req"><span class="dot '+colOf(r.status)+'"></span><span><span class="rid" data-goto="reqs:req:'+esc(r.id)+'" title="在「需求」页签定位该条">'+esc(r.id)+'</span> '+esc(r.title)+'</span></div>';
+    });
+    html+='</div>';
+  }
+  card.innerHTML=html;
+  card.addEventListener('keydown',function(e){
+    if(!e.altKey)return;
+    if(e.key==='ArrowLeft'){e.preventDefault();moveBy(p.id,-1);}
+    else if(e.key==='ArrowRight'){e.preventDefault();moveBy(p.id,1);}
+  });
+  card.addEventListener('dragstart',function(e){dragging=true;e.dataTransfer.setData('text/plain',p.id);card.classList.add('dragging');});
+  card.addEventListener('dragend',function(){
+    card.classList.remove('dragging');
+    dragging=false;
+    /* A sync that landed mid-drag was held back; apply it now that the card is released. */
+    if(pendingRender)render();
+  });
+  return card;
+}
+/* The lanes of ONE stage. A lane is a scroll box, and its position is remembered by KEY rather than by
+   ordinal: opening a disclosure changes how many lanes exist, so positional matching would restore a
+   position into a lane the reader never scrolled. */
+function buildLanes(pkgs,stageId,host){
+  var counts={};COLS.forEach(function(c){counts[c.k]=0;});
+  pkgs.forEach(function(p){if(visible(p))counts[effCol(p)]++;});
+  COLS.forEach(function(c){
+    /* The cancelled lane is hidden whenever it is empty - that is a documented rule (CONTRIBUTING §9.3),
+       not a preference. Every OTHER empty lane follows the toolbar's "hide empty" option. */
+    if(counts[c.k]===0&&(c.k==='closed'||hideEmpty))return;
+    var collapsed=isCollapsed(c.k);
+    var colEl=document.createElement('div');colEl.className='col';colEl.dataset.col=c.k;
+    colEl.dataset.key='lane:'+stageId+':'+c.k;
+    if(collapsed)colEl.classList.add('collapsed');
+    colEl.innerHTML='<h2>'+c.l+'<span class="count">'+counts[c.k]+'</span></h2>';
+    /* The lane header is the collapse control: it is the one element of a lane that is always there
+       (cards come and go), and a mouse-only control would make the collapse a dead end on a keyboard -
+       hence focusable, role=button, and Enter / Space. */
+    var h2=colEl.querySelector('h2');
+    if(h2){
+      h2.tabIndex=0;
+      h2.setAttribute('role','button');
+      h2.setAttribute('aria-expanded',collapsed?'false':'true');
+      h2.title=collapsed?'展开本泳道':'收起本泳道';
+      h2.addEventListener('click',function(){toggleCollapse(c.k);});
+      h2.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleCollapse(c.k);}});
+    }
+    /* The order is the reader's choice (toolbar); the document order stays the default. */
+    orderedPkgs(pkgs).forEach(function(p){
+      /* A collapsed lane renders its header and nothing else: the cards are not built at all, so a
+         collapsed board is genuinely cheaper, not merely hidden with CSS. The count above still counts
+         every visible package. */
+      if(collapsed)return;
+      if(effCol(p)!==c.k||!visible(p))return;
+      colEl.appendChild(buildCard(p));
+    });
+    colEl.addEventListener('dragover',function(e){e.preventDefault();});
+    colEl.addEventListener('drop',function(e){
+      e.preventDefault();
+      var id=e.dataTransfer.getData('text/plain');
+      var p=pkgById(id);
+      /* A stage is a fact of the plan, not a reader choice: a card dropped into ANOTHER stage's lane must
+         not move there. The drag is a lane move inside one stage; overrides never touch `stage`. */
+      dragging=false;
+      if(!p||p.stage!==stageId){if(pendingRender)render();return;}
+      /* Recorded BEFORE the override is written: the history entry is where the card came from. */
+      recordMove(id,c.k);
+      overrides[id]=c.k;saveOverrides();
+      /* The move is the user's own action and has to land now: clear the drag flag first, or the guard
+         below would defer it to a dragend that this very rebuild is about to remove. */
+      render();
+    });
+    host.appendChild(colEl);
+  });
+}
 /* The toolbar line spells out what the filter is doing, so a filtered (or empty) screen is never
    ambiguous - and it is explicit about Health being exempt. */
 function updateHits(){
@@ -639,16 +825,32 @@ function mayRender(){
   pendingRender=false;
   return true;
 }
+/* A scroll box is identified by KEY, never by ordinal: the lanes now live inside disclosures, so opening
+   or closing ONE stage changes how many boxes exist and where they sit - positional matching would then
+   restore a position into a lane the reader never scrolled. `.col` carries `lane:<stage>:<status>`, the
+   panels carry their own element id, and a box with neither is simply not restored (better than wrong). */
+function boxKey(el){
+  if(!el)return '';
+  if(el.dataset&&el.dataset.key)return el.dataset.key;
+  return el.id?('#'+el.id):'';
+}
 function scrollSnapshot(){
   var out={win:0,boxes:[]};
   try{ out.win=(document.scrollingElement?document.scrollingElement.scrollTop:0)||0; }catch(e){}
-  try{ document.querySelectorAll(SCROLL_BOXES).forEach(function(el){ out.boxes.push(el.scrollTop||0); }); }catch(e){}
+  try{ document.querySelectorAll(SCROLL_BOXES).forEach(function(el){ out.boxes.push({k:boxKey(el),t:el.scrollTop||0}); }); }catch(e){}
   return out;
 }
 function scrollRestore(s){
   if(!s)return;
   try{ if(document.scrollingElement)document.scrollingElement.scrollTop=s.win; }catch(e){}
-  try{ document.querySelectorAll(SCROLL_BOXES).forEach(function(el,i){ if(typeof s.boxes[i]==='number')el.scrollTop=s.boxes[i]; }); }catch(e){}
+  try{
+    var by={};
+    (s.boxes||[]).forEach(function(b){ if(b&&b.k)by[b.k]=b.t; });
+    document.querySelectorAll(SCROLL_BOXES).forEach(function(el){
+      var k=boxKey(el);
+      if(k&&Object.prototype.hasOwnProperty.call(by,k))el.scrollTop=by[k];
+    });
+  }catch(e){}
 }
 /* Re-entrant on purpose: a render triggered from inside a guarded render must not snapshot twice and
    fight over the restore. The restore sits in the finally so the guarantee is unconditional: a render
@@ -675,86 +877,48 @@ function renderEverything(){
   updateOverridesBanner();
 }
 function renderBoard(){
-  var board=document.getElementById('board');board.innerHTML='';
-  var counts={};COLS.forEach(function(c){counts[c.k]=0;});
-  DATA.packages.forEach(function(p){if(visible(p))counts[effCol(p)]++;});
-  COLS.forEach(function(c){
-    /* The cancelled lane only appears when something is actually cancelled: an always-empty column is
-       noise, and 取消 / 范围外 is a low-frequency state (CONTRIBUTING §9.3). */
-    /* The cancelled lane is hidden whenever it is empty - that is a documented rule (CONTRIBUTING §9.3),
-       not a preference. Every OTHER empty lane follows the toolbar's "hide empty" option. */
-    if(counts[c.k]===0&&(c.k==='closed'||hideEmpty))return;
-    var collapsed=isCollapsed(c.k);
-    var colEl=document.createElement('div');colEl.className='col';colEl.dataset.col=c.k;
-    if(collapsed)colEl.classList.add('collapsed');
-    colEl.innerHTML='<h2>'+c.l+'<span class="count">'+counts[c.k]+'</span></h2>';
-    /* The lane header is the collapse control: it is the one element of a lane that is always there
-       (cards come and go), and a mouse-only control would make the collapse a dead end on a keyboard -
-       hence focusable, role=button, and Enter / Space. */
-    var h2=colEl.querySelector('h2');
-    if(h2){
-      h2.tabIndex=0;
-      h2.setAttribute('role','button');
-      h2.setAttribute('aria-expanded',collapsed?'false':'true');
-      h2.title=collapsed?'展开本泳道':'收起本泳道';
-      h2.addEventListener('click',function(){toggleCollapse(c.k);});
-      h2.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleCollapse(c.k);}});
+  var host=document.getElementById('stagebar');if(!host)return;
+  host.innerHTML='';
+  var ids=stageIds();
+  if(!ids.length){host.innerHTML='<div class="empty">计划里还没有工作包，因此没有阶段可列。</div>';return;}
+  var all=DATA.packages||[];
+  ids.forEach(function(id){
+    /* Narrowing the view to ONE stage is the toolbar select's decision; the head below is not a filter,
+       so a stage hidden by the select is simply not rendered. */
+    if(stageFilter!=='ALL'&&id!==stageFilter)return;
+    var mine=all.filter(function(p){return p.stage===id;});
+    var done=mine.filter(function(p){return effCol(p)==='done';}).length;
+    var pct=mine.length?Math.round(done*100/mine.length):0;
+    var collapsed=isStageCollapsed(id);
+    var raw=stageStatus(id);
+    var sec=document.createElement('section');sec.className='stage';sec.dataset.stage=id;
+    var head=document.createElement('h2');head.className='shead';
+    head.dataset.stage=id;
+    head.id='stagehead-'+id;
+    head.tabIndex=0;
+    head.setAttribute('role','button');
+    head.setAttribute('aria-expanded',collapsed?'false':'true');
+    /* Only an OPEN disclosure names a body: a collapsed one renders none, and `aria-controls` must not
+       point at an element that does not exist. */
+    if(!collapsed)head.setAttribute('aria-controls','stagebody-'+id);
+    head.title=(collapsed?'展开':'收起')+id+'的工作包'+(raw?(' · 阶段状态：'+raw):'');
+    head.innerHTML='<span class="caret"></span>'
+      +'<span class="sid">'+esc(id)+'</span>'
+      +'<span class="sst">'+esc(stageText(raw))+'</span>'
+      +'<span class="bar"><i style="width:'+pct+'%"></i></span>'
+      +'<span class="scnt">'+done+' / '+mine.length+'</span>';
+    head.addEventListener('click',function(){toggleStage(id);});
+    head.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleStage(id);}});
+    sec.appendChild(head);
+    /* A collapsed stage renders its head and nothing else - the lanes are not built at all, so a long
+       board is genuinely cheaper when folded, and the head's own count still answers the summary question. */
+    if(!collapsed){
+      var body=document.createElement('div');body.className='sbody';body.id='stagebody-'+id;
+      var lanes=document.createElement('div');lanes.className='board';
+      buildLanes(mine,id,lanes);
+      body.appendChild(lanes);sec.appendChild(body);
     }
-    /* The order is the reader's choice (toolbar); the document order stays the default. */
-    orderedPkgs(DATA.packages).forEach(function(p){
-      /* A collapsed lane renders its header and nothing else: the cards are not built at all, so a
-         collapsed board is genuinely cheaper, not merely hidden with CSS. The count above still counts
-         every visible package. */
-      if(collapsed)return;
-      if(effCol(p)!==c.k||!visible(p))return;
-      var card=document.createElement('div');card.className='card';card.draggable=true;card.dataset.id=p.id;
-      /* The card is the destination of "jump to this package" - the key reveal() looks a card up by. */
-      card.dataset.key='pkg:'+p.id;
-      /* Focusable so a lane move has a keyboard path as well as a drag one; the hint rides on the title
-         instead of a new toolbar. */
-      card.tabIndex=0;
-      card.title='可拖动；也可聚焦后按 Alt+← / Alt+→ 移动，Ctrl+Z 撤销上一步';
-      var html='<div class="pkg">'+esc(p.id)+'</div>';
-      html+='<div class="title">'+esc(p.content)+'</div>';
-      if(p.deps&&p.deps!=='\u2014')html+='<div class="deps">依赖：'+esc(p.deps)+'</div>';
-      html+='<div class="status">'+esc(p.status)+(p.pr?' - '+prHtml(p.pr):'')+'</div>';
-      if(p.reqs&&p.reqs.length){
-        html+='<div class="reqs">';
-        p.reqs.forEach(function(r){
-          /* The requirement id in a card is the reverse link into the 需求 panel: the card says where a
-             requirement is delivered, the register row says everything else about it. */
-          html+='<div class="req"><span class="dot '+colOf(r.status)+'"></span><span><span class="rid" data-goto="reqs:req:'+esc(r.id)+'" title="在「需求」页签定位该条">'+esc(r.id)+'</span> '+esc(r.title)+'</span></div>';
-        });
-        html+='</div>';
-      }
-      card.innerHTML=html;
-      card.addEventListener('keydown',function(e){
-        if(!e.altKey)return;
-        if(e.key==='ArrowLeft'){e.preventDefault();moveBy(p.id,-1);}
-        else if(e.key==='ArrowRight'){e.preventDefault();moveBy(p.id,1);}
-      });
-      card.addEventListener('dragstart',function(e){dragging=true;e.dataTransfer.setData('text/plain',p.id);card.classList.add('dragging');});
-      card.addEventListener('dragend',function(){
-        card.classList.remove('dragging');
-        dragging=false;
-        /* A sync that landed mid-drag was held back; apply it now that the card is released. */
-        if(pendingRender)render();
-      });
-      colEl.appendChild(card);
-    });
-    colEl.addEventListener('dragover',function(e){e.preventDefault();});
-    colEl.addEventListener('drop',function(e){
-      e.preventDefault();
-      var id=e.dataTransfer.getData('text/plain');
-      /* Recorded BEFORE the override is written: the history entry is where the card came from. */
-      recordMove(id,c.k);
-      overrides[id]=c.k;saveOverrides();
-      /* The move is the user's own action and has to land now: clear the drag flag first, or the guard
-         below would defer it to a dragend that this very rebuild is about to remove. */
-      dragging=false;
-      render();
-    });
-    board.appendChild(colEl);
+    host.appendChild(sec);
   });
   /* The decisions list used to sit at the bottom of this page; it is its own tab now, which is what
      turns the board into one view of a dimension instead of a page with everything stacked on it. */

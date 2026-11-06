@@ -261,6 +261,11 @@ function Get-ScopeMap {
 # package id - never by a file name. Why: a design document shares the plan's numeric prefix
 # (03-P0-1-<design> sits next to 03-P0<plan>) and a requirements spec naturally lists ids of its own, so
 # "the first file that matches" silently picks the wrong document and every view downstream reads zeros.
+#
+# The first cell only has to START with the id, not equal it: a plan is allowed to annotate the row
+# ("**P5-0** (a batch that takes no package slot)"), and requiring an exact match silently disqualified the
+# WHOLE document - every package of that stage disappeared from the board with no error anywhere, which is
+# how P5 read "0 / 0" while its plan listed five packages.
 function Test-PackagePlan {
     param([string]$Path)
     $lines = @(Get-Content -LiteralPath $Path -Encoding UTF8 -ErrorAction SilentlyContinue)
@@ -274,7 +279,7 @@ function Test-PackagePlan {
     }
     $t = Parse-Table $sec
     if ($t.Rows.Count -eq 0) { return $false }
-    return ((($t.Rows[0][0] -replace '\*', '') -replace '`', '').Trim() -match '^P\d+-\d+$')
+    return ((($t.Rows[0][0] -replace '\*', '') -replace '`', '').Trim() -match '^P\d+-\d+')
 }
 
 # Build the board model JSON from the governance docs.
@@ -323,12 +328,22 @@ function Get-KanbanJson {
     }
     # The timeline doc is resolved by CONTENT as well: the file that carries a table whose first cell is
     # an ISO date. Section headings are Chinese and are never matched as literals.
+    #
+    # It must ALSO carry the stage table (a row whose first cell is a stage id). Without that second half,
+    # any document that merely has a dated change log wins on file-name order - a design note numbered
+    # below the timeline took over the model that way and published zero stages and zero timeline rows,
+    # so every requirement's stage link read as "not on the board". Two tables, one document: that is the
+    # timeline doc's shape. A dated-only document is kept only as a fallback (skeleton repos).
     $tlFile = $null
+    $tlFallback = $null
     foreach ($f in $mdFiles) {
-        $hit = Get-Content -LiteralPath $f.FullName -Encoding UTF8 -ErrorAction SilentlyContinue |
-            Where-Object { $_ -match '^\|\s*\d{4}-\d{2}-\d{2}\s*\|' }
-        if ($hit) { $tlFile = $f; break }
+        $lines = @(Get-Content -LiteralPath $f.FullName -Encoding UTF8 -ErrorAction SilentlyContinue)
+        $dated = @($lines | Where-Object { $_ -match '^\|\s*\d{4}-\d{2}-\d{2}\s*\|' })
+        if ($dated.Count -eq 0) { continue }
+        if (@($lines | Where-Object { $_ -match '^\|\s*P\d+\s*\|' }).Count -gt 0) { $tlFile = $f; break }
+        if (-not $tlFallback) { $tlFallback = $f }
     }
+    if (-not $tlFile) { $tlFile = $tlFallback }
 
     # The newest plan (name order) stands for the plan in the source list; all of them are read below.
     $planPath = if ($planFiles.Count -gt 0) { $planFiles[-1].FullName } else { '' }
@@ -433,6 +448,10 @@ function Get-KanbanJson {
     foreach ($row in $pkgRows) {
         if ($row.Count -lt 4) { continue }
         $id      = $row[0] -replace '\*', '' -replace '`', '' -replace '\s', ''
+        # The bare number behind any annotation the plan put on the row. Two readers need it: the stage is
+        # derived from it, and the gate compares it with the rows it reads itself. `id` keeps the annotation
+        # on purpose - a plan uses it to tell a slice from the package that owns it.
+        $key = if ($id -match '^(P\d+(?:-\d+)+)') { $Matches[1] } else { $id }
         $content = $row[1]
         $deps    = $row[2]
         $status  = $row[3]
@@ -445,6 +464,7 @@ function Get-KanbanJson {
         $stage = if ($id -match '^(P\d+)') { $Matches[1] } else { '' }
         $packages += [ordered]@{
             id      = $id
+            key     = $key
             content = $content
             deps    = $deps
             status  = $status
