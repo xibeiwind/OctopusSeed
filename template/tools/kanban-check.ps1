@@ -633,6 +633,58 @@ if (-not $rtmFile) {
     Write-Host '  requirements : no wide traceability table found yet - coverage NOT judged'
 }
 
+# ------------------------------------------------- every package row is visible on the board (2026-11-06)
+# The two registers above were covered; the PACKAGE table was not. The gap is real and it fails silently: a
+# plan whose section 3 first row is annotated ("**P5-0** (a batch that takes no package slot)") fails the
+# "first row is a bare id" shape test, so the WHOLE document is not read as a plan - every package of that
+# stage disappears from the board (no card, no stage count, no error anywhere). Grouping the board by stage
+# turned that into a visible "0 / 0": wrong, but not obviously wrong.
+#
+# Read INDEPENDENTLY with a line regex - never through the shared parser, which is what failed - from the
+# FIRST pipe block of each document's section 3 (the same shape that makes a document a plan, CONTRIBUTING
+# section 10 item 1). The comparison key is the bare package number, which is what a plan's own annotation
+# ("slice" / "takes no package slot") sits behind.
+function Get-PlanSectionPackageKeys {
+    $out = @()
+    foreach ($f in @(Get-ChildItem -LiteralPath $docsDir -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        $inside = $false; $block = @(); $closed = $false
+        foreach ($ln in [System.IO.File]::ReadAllLines($f.FullName, [System.Text.Encoding]::UTF8)) {
+            if ($ln -match '^##\s*3\.') { $inside = $true; continue }
+            if ($inside -and $ln -match '^##\s*4\.') { break }
+            if (-not $inside -or $closed) { continue }
+            if ($ln -match '^\s*\|') { $block += $ln }
+            elseif ($block.Count -gt 0) { $closed = $true }   # a non-pipe line ends the FIRST block
+        }
+        foreach ($ln in $block) {
+            $m = [regex]::Match($ln, '^\s*\|\s*\**\s*(P\d+(?:-\d+)+)')
+            if ($m.Success) { $out += [pscustomobject]@{ File = $f.Name; Key = $m.Groups[1].Value } }
+        }
+    }
+    return $out
+}
+$planPkgs = @(Get-PlanSectionPackageKeys)
+$modelPkgKeys = @()
+if ($modelUsable) {
+    $modelPkgKeys = @($embedded.packages | Where-Object { $_ } | ForEach-Object { if ($_.key) { [string]$_.key } else { [string]$_.id } })
+}
+if ($planPkgs.Count -eq 0) {
+    Write-Host '  packages     : no package table found yet - coverage NOT judged'
+} elseif (-not $modelUsable) {
+    Write-Host ('  packages     : {0} package row(s) in the plans but the board model is not usable - coverage NOT judged' -f $planPkgs.Count)
+} else {
+    $planPkgKeys = @($planPkgs | ForEach-Object { $_.Key })
+    foreach ($p in $planPkgs) {
+        if ($modelPkgKeys -notcontains $p.Key) {
+            Add-Finding ("packages: {0} heads a row of {1} but is NOT on the board - the document was not read as a plan (its section 3 first row must START with a package number, not equal it)" -f $p.Key, $p.File)
+        }
+    }
+    foreach ($k in $modelPkgKeys) {
+        if ($planPkgKeys -notcontains $k) {
+            Add-Finding ("packages: the model carries {0} but no plan section 3 lists it (stale artifact?)" -f $k)
+        }
+    }
+}
+
 # --- every tab has a panel and every panel has a tab: an entry point that opens nothing and a panel no tab
 # can reach are the two halves of one failure, and neither is visible in a screenshot of the other.
 $tabSet = @([regex]::Matches($html, 'data-tab="([a-z]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
